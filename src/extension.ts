@@ -50,9 +50,38 @@ interface ParsedMessage {
 const issueCache = new Map<string, { issues: Issue[]; timestamp: number }>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5分钟缓存
 
+// 添加输出频道变量
+let outputChannel: vscode.OutputChannel;
+
+// 在现有的常量定义后添加日志函数
+function logToOutput(message: string, data?: any) {
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] ${message}`;
+    
+    // 输出到频道
+    if (outputChannel) {
+        outputChannel.appendLine(logMessage);
+        if (data) {
+            outputChannel.appendLine(JSON.stringify(data, null, 2));
+        }
+    }
+    
+    // 同时输出到控制台
+    console.log(message, data);
+}
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('CommitHelper is now active!');
     
+    // 创建输出频道
+    outputChannel = vscode.window.createOutputChannel('CommitHelper');
+    context.subscriptions.push(outputChannel);
+    
+    // 可选：自动显示输出面板（开发阶段使用）
+    // outputChannel.show(true);
+    
+    logToOutput('CommitHelper 插件已激活');
+
     // 等待 Git 扩展加载
     const waitForGit = async () => {
         let attempts = 0;
@@ -355,25 +384,25 @@ async function tryGitCommitCompletion(): Promise<string | null> {
         const originalMessage = repository.inputBox.value;
         
         // 方法1: 尝试带参数的调用
-        try {
-            console.log('尝试方法1: 带参数调用 Copilot');
-            await vscode.commands.executeCommand('github.copilot.git.generateCommitMessage', repository);
+        // try {
+        //     console.log('尝试方法1: 带参数调用 Copilot');
+        //     await vscode.commands.executeCommand('github.copilot.git.generateCommitMessage', repository);
             
-            // 等待生成完成
-            await new Promise(resolve => setTimeout(resolve, 5000));
+        //     // 等待生成完成
+        //     await new Promise(resolve => setTimeout(resolve, 5000));
             
-            const newMessage = repository.inputBox.value;
-            if (newMessage && newMessage !== originalMessage && newMessage.trim()) {
-                console.log('方法1成功:', newMessage);
-                return newMessage;
-            }
-        } catch (error) {
-            console.log('方法1失败:', error);
-        }
+        //     const newMessage = repository.inputBox.value;
+        //     if (newMessage && newMessage !== originalMessage && newMessage.trim()) {
+        //         console.log('方法1成功:', newMessage);
+        //         return newMessage;
+        //     }
+        // } catch (error) {
+        //     console.log('方法1失败:', error);
+        // }
 
         // 方法2: 尝试先聚焦到 Git 提交框
         try {
-            console.log('尝试方法2: 先聚焦再调用');
+            logToOutput('尝试方法2: 先聚焦再调用');
             
             // 先聚焦到 SCM 视图
             await vscode.commands.executeCommand('workbench.view.scm');
@@ -391,16 +420,16 @@ async function tryGitCommitCompletion(): Promise<string | null> {
             
             const newMessage = repository.inputBox.value;
             if (newMessage && newMessage !== originalMessage && newMessage.trim()) {
-                console.log('方法2成功:', newMessage);
+                logToOutput('方法2成功:', newMessage);
                 return newMessage;
             }
         } catch (error) {
-            console.log('方法2失败:', error);
+            logToOutput('方法2失败:', error);
         }
 
         // 方法4: 尝试通过 URI 调用
         try {
-            console.log('尝试方法4: URI 调用');
+            logToOutput('尝试方法4: URI 调用');
             const uri = vscode.Uri.parse('command:github.copilot.git.generateCommitMessage');
             await vscode.commands.executeCommand('vscode.open', uri);
             
@@ -409,21 +438,21 @@ async function tryGitCommitCompletion(): Promise<string | null> {
             
             const newMessage = repository.inputBox.value;
             if (newMessage && newMessage !== originalMessage && newMessage.trim()) {
-                console.log('方法4成功:', newMessage);
+                logToOutput('方法4成功:', newMessage);
                 return newMessage;
             }
         } catch (error) {
-            console.log('方法4失败:', error);
+            logToOutput('方法4失败:', error);
         }
 
         // 方法5: 尝试模拟用户操作
         try {
-            console.log('尝试方法5: 模拟用户操作');
+            logToOutput('尝试方法5: 模拟用户操作');
             
             // 确保有一些文件变更
             const changes = repository.state.workingTreeChanges;
             if (changes.length === 0) {
-                console.log('没有文件变更，无法生成提交消息');
+                logToOutput('没有文件变更，无法生成提交消息');
                 return null;
             }
 
@@ -446,18 +475,18 @@ async function tryGitCommitCompletion(): Promise<string | null> {
                     
                     const newMessage = repository.inputBox.value;
                     if (newMessage && newMessage !== originalMessage && newMessage.trim()) {
-                        console.log(`方法5成功 (${shortcut}):`, newMessage);
+                        logToOutput(`方法5成功 (${shortcut}):`, newMessage);
                         return newMessage;
                     }
                 } catch (error) {
-                    console.log(`快捷键 ${shortcut} 失败:`, error);
+                    logToOutput(`快捷键 ${shortcut} 失败:`, error);
                 }
             }
         } catch (error) {
-            console.log('方法5失败:', error);
+            logToOutput('方法5失败:', error);
         }
 
-        console.log('所有调用 Copilot 的方法都失败了');
+        logToOutput('所有调用 Copilot 的方法都失败了');
         return null;
         
     } catch (error) {
@@ -507,7 +536,7 @@ async function fetchIssues(repoInfo: RepoInfo): Promise<Issue[]> {
                 issues = await fetchGitLabIssues(repoInfo, token);
                 break;
             case 'gitee':
-                issues = await fetchGiteeIssues(repoInfo, token);
+                issues = await fetchGiteeIssues(repoInfo, token); 
                 break;
             default:
                 return [];
@@ -853,8 +882,8 @@ async function formatExistingCommitMessage() {
         return;
     }
 
-    // 获取议题信息
-    let selectedIssue: Issue | null = null;
+     // 获取议题信息 - 支持多选
+    let selectedIssues: Issue[] = [];
     
     try {
         const repoInfo = await getRepoInfo();
@@ -885,46 +914,62 @@ async function formatExistingCommitMessage() {
                 // 添加"手动输入"选项
                 issueItems.push({
                     label: '$(edit) 手动输入议题号',
-                    description: '手动输入议题号',
+                    description: '手动输入一个或多个议题号',
                     detail: '',
                     issue: { number: -1, title: '', url: '' } // 特殊标记
                 });
                 
-                const selectedItem = await vscode.window.showQuickPick(issueItems, {
-                    placeHolder: `选择要关联的议题 (共 ${issues.length} 个开放议题)`,
-                    matchOnDescription: true
+                // 使用多选模式
+                const selectedItems = await vscode.window.showQuickPick(issueItems, {
+                    placeHolder: `选择要关联的议题 (共 ${issues.length} 个开放议题，支持多选)`,
+                    matchOnDescription: true,
+                    canPickMany: true, // 启用多选
+                    ignoreFocusOut: true // 避免焦点丢失时关闭
                 });
                 
-                if (selectedItem === undefined) {
+                if (selectedItems === undefined) {
                     return;
                 }
                 
-                if (selectedItem.issue && selectedItem.issue.number === -1) {
-                    // 手动输入
-                    const manualIssue = await vscode.window.showInputBox({
-                        prompt: '输入议题号',
-                        placeHolder: '例如: 123 (不需要#号)',
-                        validateInput: (value) => {
-                            if (value && !/^\d+$/.test(value)) {
-                                return '请输入有效的数字';
-                            }
-                            return null;
-                        }
-                    });
-                    
-                    if (manualIssue === undefined) {
-                        return;
-                    }
-                    
-                    if (manualIssue) {
-                        selectedIssue = {
-                            number: parseInt(manualIssue),
-                            title: '',
-                            url: ''
-                        };
-                    }
+                // 处理选择结果
+                if (selectedItems.length === 0) {
+                    // 用户没有选择任何项
+                    selectedIssues = [];
                 } else {
-                    selectedIssue = selectedItem.issue;
+                    // 检查是否选择了特殊选项
+                    const noIssueSelected = selectedItems.some(item => item.issue === null);
+                    const manualInputSelected = selectedItems.some(item => item.issue?.number === -1);
+                    
+                    if (noIssueSelected && selectedItems.length > 1) {
+                        vscode.window.showWarningMessage('不能同时选择"不关联议题"和其他选项，将忽略其他选择');
+                        selectedIssues = [];
+                    } else if (noIssueSelected) {
+                        selectedIssues = [];
+                    } else if (manualInputSelected) {
+                        // 处理手动输入
+                        const manualIssues = await handleManualIssueInput();
+                        if (manualIssues === undefined) {
+                            return; // 用户取消
+                        }
+                        
+                        // 合并手动输入的议题和从列表选择的议题
+                        const listSelectedIssues = selectedItems
+                            .filter(item => item.issue && item.issue.number !== -1)
+                            .map(item => item.issue!);
+                        
+                        selectedIssues = [...listSelectedIssues, ...manualIssues];
+                    } else {
+                        // 正常的多选情况
+                        selectedIssues = selectedItems
+                            .filter(item => item.issue && item.issue.number !== -1)
+                            .map(item => item.issue!);
+                    }
+                }
+                
+                // 显示选择结果
+                if (selectedIssues.length > 0) {
+                    const issueNumbers = selectedIssues.map(issue => `#${issue.number}`).join(', ');
+                    vscode.window.showInformationMessage(`已选择 ${selectedIssues.length} 个议题: ${issueNumbers}`);
                 }
             } else {
                 vscode.window.showInformationMessage(`未在 ${platformName} 找到开放议题`);
@@ -935,11 +980,9 @@ async function formatExistingCommitMessage() {
         
         let errorMessage = `获取议题失败: ${error}`;
         
-        // 如果是 GitHub 频率限制错误，提供配置建议
         if (error instanceof Error && error.message.includes('rate limit')) {
             errorMessage += '\n\n💡 建议：配置 GitHub Token 以获得更高的 API 访问限制';
             
-            // 提供快速配置选项
             const configureToken = await vscode.window.showErrorMessage(
                 errorMessage,
                 '配置 GitHub Token',
@@ -954,22 +997,9 @@ async function formatExistingCommitMessage() {
         }
         
         // 回退到手动输入
-        const issueNumber = await vscode.window.showInputBox({
-            prompt: '输入相关的Issue号 (可选)',
-            placeHolder: '例如: 123 (不需要#号)',
-            value: ''
-        });
-
-        if (issueNumber === undefined) {
-            return;
-        }
-        
-        if (issueNumber) {
-            selectedIssue = {
-                number: parseInt(issueNumber),
-                title: '',
-                url: ''
-            };
+        const manualIssues = await handleManualIssueInput();
+        if (manualIssues !== undefined) {
+            selectedIssues = manualIssues;
         }
     }
 
@@ -1020,11 +1050,51 @@ async function formatExistingCommitMessage() {
         finalTitle,
         finalBody,
         isBreakingChange.value,
-        selectedIssue?.number.toString() || ''
+        selectedIssues // 传入议题数组而不是单个议题号
     );
 
     await setCommitMessage(formattedMessage);
     vscode.window.showInformationMessage('✅ 约定式提交消息已更新');
+}
+
+async function handleManualIssueInput(): Promise<Issue[] | undefined> {
+    const manualInput = await vscode.window.showInputBox({
+        prompt: '输入议题号 (多个议题用逗号分隔)',
+        placeHolder: '例如: 123, 456, 789 (不需要#号)',
+        validateInput: (value) => {
+            if (value && value.trim()) {
+                const numbers = value.split(',').map(n => n.trim()).filter(n => n);
+                const invalidNumbers = numbers.filter(n => !/^\d+$/.test(n));
+                if (invalidNumbers.length > 0) {
+                    return `包含无效的议题号: ${invalidNumbers.join(', ')}`;
+                }
+            }
+            return null;
+        }
+    });
+    
+    if (manualInput === undefined) {
+        return undefined; // 用户取消
+    }
+    
+    if (!manualInput.trim()) {
+        return []; // 用户输入为空
+    }
+    
+    // 解析输入的议题号
+    const issueNumbers = manualInput.split(',')
+        .map(n => n.trim())
+        .filter(n => n && /^\d+$/.test(n))
+        .map(n => parseInt(n));
+    
+    // 去重
+    const uniqueNumbers = [...new Set(issueNumbers)];
+    
+    return uniqueNumbers.map(number => ({
+        number: number,
+        title: '',
+        url: ''
+    }));
 }
 
 function parseCommitMessage(message: string): { title: string; body: string } {
@@ -1047,7 +1117,7 @@ function buildConventionalCommitMessage(
     title: string, 
     body: string, 
     isBreakingChange: boolean, 
-    issueNumber: string
+    issues: Issue[] // 改为议题数组
 ): string {
     let typeScope = type;
     if (scope.trim()) {
@@ -1069,9 +1139,16 @@ function buildConventionalCommitMessage(
         message += `\n\nBREAKING CHANGE: ${normalizedTitle}`;
     }
     
-    if (issueNumber.trim()) {
-        const issue = issueNumber.trim().replace(/^#/, '');
-        message += `\n\nCloses #${issue}`;
+    // 处理多个议题
+    if (issues.length > 0) {
+        const issueRefs = issues.map(issue => `#${issue.number}`);
+        
+        if (issues.length === 1) {
+            message += `\n\nCloses ${issueRefs[0]}`;
+        } else {
+            // 多个议题的情况
+            message += `\n\nCloses ${issueRefs.join(', ')}`;
+        }
     }
     
     return message;
