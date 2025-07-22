@@ -1,0 +1,55 @@
+{
+  "name": "CommitHelper",
+  "displayName": "CommitHelper",
+  "description": "Format existing commit messages with conventional commit standards",
+  "version": "1.0.0",
+  "publisher": "your-publisher-name",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "git",
+    "commit",
+    "conventional",
+    "format"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "CommitHelper.formatMessage",
+        "title": "Format as Conventional Commit",
+        "icon": "$(tag)"
+      }
+    ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "CommitHelper.formatMessage",
+          "when": "scmProvider == git",
+          "group": "navigation@2"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0",
+    "@types/node": "16.x",
+    "@vscode/vsce": "^2.15.0",
+    "typescript": "^4.9.4"
+  }
+}
