@@ -14,7 +14,8 @@
     "git",
     "commit",
     "conventional",
-    "format"
+    "format",
+    "issues"
   ],
   "activationEvents": [],
   "main": "./out/extension.js",
@@ -34,6 +35,29 @@
           "group": "navigation@2"
         }
       ]
+    },
+    "configuration": {
+      "title": "CommitHelper",
+      "properties": {
+        "commitHelper.githubToken": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub Personal Access Token for fetching issues",
+          "scope": "application"
+        },
+        "commitHelper.gitlabToken": {
+          "type": "string", 
+          "default": "",
+          "description": "GitLab Personal Access Token for fetching issues",
+          "scope": "application"
+        },
+        "commitHelper.giteeToken": {
+          "type": "string",
+          "default": "",
+          "description": "Gitee Personal Access Token for fetching issues", 
+          "scope": "application"
+        }
+      }
     }
   },
   "scripts": {

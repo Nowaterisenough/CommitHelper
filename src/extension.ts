@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as https from 'https';
+import * as http from 'http';
 
 // 约定式提交类型
 const COMMIT_TYPES = [
@@ -14,6 +16,25 @@ const COMMIT_TYPES = [
     { label: 'build', description: '构建系统 (Changes that affect the build system or external dependencies)' },
     { label: 'revert', description: '回滚 (Reverts a previous commit)' }
 ];
+
+interface Issue {
+    number: number;
+    title: string;
+    url: string;
+    labels?: string[];
+}
+
+interface RepoInfo {
+    platform: 'github' | 'gitlab' | 'gitee' | 'unknown';
+    owner: string;
+    repo: string;
+    baseUrl: string;
+}
+
+// 添加 IssueQuickPickItem 接口
+interface IssueQuickPickItem extends vscode.QuickPickItem {
+    issue: Issue | null;
+}
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('CommitHelper is now active!');
@@ -32,7 +53,6 @@ export function activate(context: vscode.ExtensionContext) {
 // 检查消息是否已经是约定式提交格式
 function isConventionalCommit(message: string): boolean {
     const firstLine = message.split('\n')[0];
-    // 匹配约定式提交格式: type(scope): description 或 type: description
     const conventionalPattern = /^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\([^)]+\))?!?:\s+.+/;
     return conventionalPattern.test(firstLine);
 }
@@ -48,11 +68,9 @@ function parseConventionalCommit(message: string): {
     const lines = message.split('\n');
     const firstLine = lines[0];
     
-    // 解析第一行: type(scope)!: title
     const match = firstLine.match(/^([^(:!]+)(\(([^)]+)\))?(!)?:\s*(.+)$/);
     
     if (!match) {
-        // 如果解析失败，返回默认值
         const parsed = parseCommitMessage(message);
         return {
             type: 'feat',
@@ -68,7 +86,6 @@ function parseConventionalCommit(message: string): {
     const isBreakingChange = !!match[4];
     const title = match[5];
     
-    // 获取 body（跳过空行）
     let bodyStart = 1;
     while (bodyStart < lines.length && !lines[bodyStart].trim()) {
         bodyStart++;
@@ -78,8 +95,225 @@ function parseConventionalCommit(message: string): {
     return { type, scope, title, body, isBreakingChange };
 }
 
+// 获取仓库信息
+async function getRepoInfo(): Promise<RepoInfo | null> {
+    try {
+        const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
+        if (!gitExtension) {
+            return null;
+        }
+        
+        const git = gitExtension.getAPI(1);
+        if (git.repositories.length === 0) {
+            return null;
+        }
+        
+        const repository = git.repositories[0];
+        const remotes = repository.state.remotes;
+        
+        if (remotes.length === 0) {
+            return null;
+        }
+        
+        // 修复类型错误：明确指定参数类型
+        const remote = remotes.find((r: any) => r.name === 'origin') || remotes[0];
+        const fetchUrl = remote.fetchUrl || remote.pushUrl;
+        
+        if (!fetchUrl) {
+            return null;
+        }
+        
+        return parseGitUrl(fetchUrl);
+    } catch (error) {
+        console.error('获取仓库信息失败:', error);
+        return null;
+    }
+}
+
+// 解析 Git URL
+function parseGitUrl(url: string): RepoInfo | null {
+    // 移除 .git 后缀
+    url = url.replace(/\.git$/, '');
+    
+    // GitHub
+    let match = url.match(/(?:https?:\/\/github\.com\/|git@github\.com:)([^\/]+)\/(.+)/);
+    if (match) {
+        return {
+            platform: 'github',
+            owner: match[1],
+            repo: match[2],
+            baseUrl: 'https://api.github.com'
+        };
+    }
+    
+    // GitLab
+    match = url.match(/(?:https?:\/\/gitlab\.com\/|git@gitlab\.com:)([^\/]+)\/(.+)/);
+    if (match) {
+        return {
+            platform: 'gitlab',
+            owner: match[1],
+            repo: match[2],
+            baseUrl: 'https://gitlab.com/api/v4'
+        };
+    }
+    
+    // Gitee
+    match = url.match(/(?:https?:\/\/gitee\.com\/|git@gitee\.com:)([^\/]+)\/(.+)/);
+    if (match) {
+        return {
+            platform: 'gitee',
+            owner: match[1],
+            repo: match[2],
+            baseUrl: 'https://gitee.com/api/v5'
+        };
+    }
+    
+    return null;
+}
+
+// 获取开放议题
+async function fetchIssues(repoInfo: RepoInfo): Promise<Issue[]> {
+    const token = await getAccessToken(repoInfo.platform);
+    
+    try {
+        switch (repoInfo.platform) {
+            case 'github':
+                return await fetchGitHubIssues(repoInfo, token);
+            case 'gitlab':
+                return await fetchGitLabIssues(repoInfo, token);
+            case 'gitee':
+                return await fetchGiteeIssues(repoInfo, token);
+            default:
+                return [];
+        }
+    } catch (error) {
+        console.error('获取议题失败:', error);
+        throw new Error(`获取议题失败: ${error}`);
+    }
+}
+
+// 获取访问令牌
+async function getAccessToken(platform: string): Promise<string | undefined> {
+    const config = vscode.workspace.getConfiguration('commitHelper');
+    
+    switch (platform) {
+        case 'github':
+            return config.get('githubToken') || process.env.GITHUB_TOKEN;
+        case 'gitlab':
+            return config.get('gitlabToken') || process.env.GITLAB_TOKEN;
+        case 'gitee':
+            return config.get('giteeToken') || process.env.GITEE_TOKEN;
+        default:
+            return undefined;
+    }
+}
+
+// 获取 GitHub 议题
+async function fetchGitHubIssues(repoInfo: RepoInfo, token?: string): Promise<Issue[]> {
+    const url = `${repoInfo.baseUrl}/repos/${repoInfo.owner}/${repoInfo.repo}/issues?state=open&per_page=50`;
+    const headers: any = {
+        'User-Agent': 'CommitHelper-VSCode-Extension',
+        'Accept': 'application/vnd.github.v3+json'
+    };
+    
+    if (token) {
+        headers['Authorization'] = `token ${token}`;
+    }
+    
+    const data = await httpRequest(url, { headers });
+    const issues = JSON.parse(data);
+    
+    return issues
+        .filter((issue: any) => !issue.pull_request) // 过滤掉 PR
+        .map((issue: any) => ({
+            number: issue.number,
+            title: issue.title,
+            url: issue.html_url,
+            labels: issue.labels?.map((label: any) => label.name) || []
+        }));
+}
+
+// 获取 GitLab 议题
+async function fetchGitLabIssues(repoInfo: RepoInfo, token?: string): Promise<Issue[]> {
+    const projectPath = encodeURIComponent(`${repoInfo.owner}/${repoInfo.repo}`);
+    const url = `${repoInfo.baseUrl}/projects/${projectPath}/issues?state=opened&per_page=50`;
+    const headers: any = {
+        'User-Agent': 'CommitHelper-VSCode-Extension'
+    };
+    
+    if (token) {
+        headers['PRIVATE-TOKEN'] = token;
+    }
+    
+    const data = await httpRequest(url, { headers });
+    const issues = JSON.parse(data);
+    
+    return issues.map((issue: any) => ({
+        number: issue.iid,
+        title: issue.title,
+        url: issue.web_url,
+        labels: issue.labels || []
+    }));
+}
+
+// 获取 Gitee 议题
+async function fetchGiteeIssues(repoInfo: RepoInfo, token?: string): Promise<Issue[]> {
+    let url = `${repoInfo.baseUrl}/repos/${repoInfo.owner}/${repoInfo.repo}/issues?state=open&per_page=50`;
+    if (token) {
+        url += `&access_token=${token}`;
+    }
+    
+    const headers = {
+        'User-Agent': 'CommitHelper-VSCode-Extension'
+    };
+    
+    const data = await httpRequest(url, { headers });
+    const issues = JSON.parse(data);
+    
+    return issues.map((issue: any) => ({
+        number: issue.number,
+        title: issue.title,
+        url: issue.html_url,
+        labels: issue.labels?.map((label: any) => label.name) || []
+    }));
+}
+
+// HTTP 请求封装
+function httpRequest(url: string, options: any = {}): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const isHttps = url.startsWith('https');
+        const client = isHttps ? https : http;
+        
+        const req = client.request(url, options, (res) => {
+            let data = '';
+            
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+            
+            res.on('end', () => {
+                if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+                    resolve(data);
+                } else {
+                    reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+                }
+            });
+        });
+        
+        req.on('error', (error) => {
+            reject(error);
+        });
+        
+        req.setTimeout(10000, () => {
+            req.destroy();
+            reject(new Error('请求超时'));
+        });
+        
+        req.end();
+    });
+}
+
 async function formatExistingCommitMessage() {
-    // 获取当前的提交消息
     const currentMessage = await getCurrentCommitMessage();
     
     if (!currentMessage.trim()) {
@@ -87,9 +321,7 @@ async function formatExistingCommitMessage() {
         return;
     }
 
-    // 检查是否已经是约定式提交格式
     let parsedMessage;
-    let isAlreadyConventional = false;
     
     if (isConventionalCommit(currentMessage)) {
         const shouldReformat = await vscode.window.showInformationMessage(
@@ -103,12 +335,10 @@ async function formatExistingCommitMessage() {
         }
         
         parsedMessage = parseConventionalCommit(currentMessage);
-        isAlreadyConventional = true;
     } else {
-        // 解析普通提交消息
         parsedMessage = parseCommitMessage(currentMessage);
         parsedMessage = {
-            type: 'feat', // 默认类型
+            type: 'feat',
             scope: '',
             title: parsedMessage.title,
             body: parsedMessage.body,
@@ -116,7 +346,7 @@ async function formatExistingCommitMessage() {
         };
     }
 
-    // 步骤1: 选择提交类型
+    // 选择提交类型
     const commitType = await vscode.window.showQuickPick(COMMIT_TYPES, {
         placeHolder: '选择最适合的提交类型',
         matchOnDescription: true
@@ -126,7 +356,7 @@ async function formatExistingCommitMessage() {
         return;
     }
 
-    // 步骤2: 输入作用域 (可选)
+    // 输入作用域
     const scope = await vscode.window.showInputBox({
         prompt: '输入作用域 (可选)',
         placeHolder: '例如: auth, api, ui, components',
@@ -137,7 +367,7 @@ async function formatExistingCommitMessage() {
         return;
     }
 
-    // 步骤3: 选择是否为破坏性变更
+    // 选择是否为破坏性变更
     const isBreakingChange = await vscode.window.showQuickPick([
         { label: '否', description: '这不是破坏性变更', value: false },
         { label: '是', description: '这是破坏性变更 (BREAKING CHANGE)', value: true }
@@ -149,18 +379,104 @@ async function formatExistingCommitMessage() {
         return;
     }
 
-    // 步骤4: 输入Issue号 (可选)
-    const issueNumber = await vscode.window.showInputBox({
-        prompt: '输入相关的Issue号 (可选)',
-        placeHolder: '例如: 123 (不需要#号)',
-        value: ''
-    });
+    // 获取议题信息
+    let selectedIssue: Issue | null = null;
+    
+    try {
+        const repoInfo = await getRepoInfo();
+        if (repoInfo) {
+            vscode.window.showInformationMessage('正在获取开放议题...');
+            const issues = await fetchIssues(repoInfo);
+            
+            if (issues.length > 0) {
+                const issueItems: IssueQuickPickItem[] = issues.map(issue => ({
+                    label: `#${issue.number}`,
+                    description: issue.title,
+                    detail: issue.labels?.length ? `标签: ${issue.labels.join(', ')}` : '',
+                    issue: issue
+                }));
+                
+                // 添加"不关联议题"选项 - 修复类型错误
+                issueItems.unshift({
+                    label: '$(x) 不关联议题',
+                    description: '此次提交不关联任何议题',
+                    detail: '',
+                    issue: null  // 现在类型是正确的
+                });
+                
+                // 添加"手动输入"选项
+                issueItems.push({
+                    label: '$(edit) 手动输入议题号',
+                    description: '手动输入议题号',
+                    detail: '',
+                    issue: { number: -1, title: '', url: '' } // 特殊标记
+                });
+                
+                const selectedItem = await vscode.window.showQuickPick(issueItems, {
+                    placeHolder: `选择要关联的议题 (共 ${issues.length} 个开放议题)`,
+                    matchOnDescription: true
+                });
+                
+                if (selectedItem === undefined) {
+                    return;
+                }
+                
+                if (selectedItem.issue && selectedItem.issue.number === -1) {
+                    // 手动输入
+                    const manualIssue = await vscode.window.showInputBox({
+                        prompt: '输入议题号',
+                        placeHolder: '例如: 123 (不需要#号)',
+                        validateInput: (value) => {
+                            if (value && !/^\d+$/.test(value)) {
+                                return '请输入有效的数字';
+                            }
+                            return null;
+                        }
+                    });
+                    
+                    if (manualIssue === undefined) {
+                        return;
+                    }
+                    
+                    if (manualIssue) {
+                        selectedIssue = {
+                            number: parseInt(manualIssue),
+                            title: '',
+                            url: ''
+                        };
+                    }
+                } else {
+                    selectedIssue = selectedItem.issue;
+                }
+            } else {
+                vscode.window.showInformationMessage('未找到开放议题');
+            }
+        }
+    } catch (error) {
+        console.error('获取议题失败:', error);
+        vscode.window.showWarningMessage(`获取议题失败: ${error}，将使用手动输入`);
+        
+        // 回退到手动输入
+        const issueNumber = await vscode.window.showInputBox({
+            prompt: '输入相关的Issue号 (可选)',
+            placeHolder: '例如: 123 (不需要#号)',
+            value: ''
+        });
 
-    if (issueNumber === undefined) {
-        return;
+        if (issueNumber === undefined) {
+            return;
+        }
+        
+        if (issueNumber) {
+            selectedIssue = {
+                number: parseInt(issueNumber),
+                title: '',
+                url: ''
+            };
+        }
     }
 
-    // 步骤5: 确认或修改标题
+    // 确认标题
     const finalTitle = await vscode.window.showInputBox({
         prompt: '确认提交标题',
         placeHolder: '简短描述这次提交的内容',
@@ -180,7 +496,7 @@ async function formatExistingCommitMessage() {
         return;
     }
 
-    // 步骤6: 确认或修改详细描述（支持多行输入）
+    // 确认详细描述
     let finalBody = '';
     if (parsedMessage.body) {
         const bodyResult = await vscode.window.showInputBox({
@@ -195,26 +511,24 @@ async function formatExistingCommitMessage() {
         finalBody = bodyResult;
     }
 
-    // 构建新的约定式提交消息
+    // 构建约定式提交消息
     const formattedMessage = buildConventionalCommitMessage(
         commitType.label,
         scope,
         finalTitle,
         finalBody,
         isBreakingChange.value,
-        issueNumber
+        selectedIssue?.number.toString() || ''
     );
 
-    // 直接设置消息，不再显示预览确认
     await setCommitMessage(formattedMessage);
     vscode.window.showInformationMessage('✅ 约定式提交消息已更新');
 }
 
 function parseCommitMessage(message: string): { title: string; body: string } {
-    const lines = message.split(/\r?\n/); // 支持不同的换行符
+    const lines = message.split(/\r?\n/);
     const title = lines[0] || '';
     
-    // 找到第一个非空行作为body的开始
     let bodyStart = 1;
     while (bodyStart < lines.length && !lines[bodyStart].trim()) {
         bodyStart++;
@@ -233,34 +547,28 @@ function buildConventionalCommitMessage(
     isBreakingChange: boolean, 
     issueNumber: string
 ): string {
-    // 构建类型和作用域部分
     let typeScope = type;
     if (scope.trim()) {
         typeScope += `(${scope.trim()})`;
     }
     
-    // 添加破坏性变更标记
     if (isBreakingChange) {
         typeScope += '!';
     }
     
-    // 构建主要消息，确保首字母小写（约定式提交规范）
     const normalizedTitle = title.charAt(0).toLowerCase() + title.slice(1);
     let message = `${typeScope}: ${normalizedTitle}`;
     
-    // 添加详细描述，保持原有的换行格式
     if (body.trim()) {
         message += `\n\n${body}`;
     }
     
-    // 添加破坏性变更说明
     if (isBreakingChange) {
         message += `\n\nBREAKING CHANGE: ${normalizedTitle}`;
     }
     
-    // 添加Issue引用
     if (issueNumber.trim()) {
-        const issue = issueNumber.trim().replace(/^#/, ''); // 移除可能的#号
+        const issue = issueNumber.trim().replace(/^#/, '');
         message += `\n\nCloses #${issue}`;
     }
     
@@ -268,7 +576,6 @@ function buildConventionalCommitMessage(
 }
 
 async function getCurrentCommitMessage(): Promise<string> {
-    // 获取Git扩展
     const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
     if (!gitExtension) {
         throw new Error('Git扩展未找到');
@@ -279,13 +586,11 @@ async function getCurrentCommitMessage(): Promise<string> {
         throw new Error('未找到Git仓库');
     }
     
-    // 获取当前仓库的提交消息
     const repository = git.repositories[0];
     return repository.inputBox.value || '';
 }
 
 async function setCommitMessage(message: string) {
-    // 获取Git扩展
     const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
     if (!gitExtension) {
         throw new Error('Git扩展未找到');
@@ -296,7 +601,6 @@ async function setCommitMessage(message: string) {
         throw new Error('未找到Git仓库');
     }
     
-    // 设置提交消息到第一个仓库
     const repository = git.repositories[0];
     repository.inputBox.value = message;
 }
