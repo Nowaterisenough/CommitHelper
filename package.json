@@ -1,29 +1,44 @@
 {
-  "name": "CommitHelper",
-  "displayName": "CommitHelper",
-  "description": "Format existing commit messages with conventional commit standards",
+  "name": "commit-helper",
+  "displayName": "Commit Helper",
+  "description": "帮助格式化Git提交消息为约定式提交格式，支持GitHub/GitLab/Gitee议题关联",
   "version": "1.0.0",
-  "publisher": "your-publisher-name",
+  "publisher": "NoWaterisEnough",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Nowaterisenough/commit-helper.git"
+  },
+  "homepage": "https://github.com/Nowaterisenough/commit-helper",
+  "bugs": {
+    "url": "https://github.com/Nowaterisenough/commit-helper/issues"
+  },
+  "keywords": [
+    "git",
+    "commit",
+    "conventional commits",
+    "github",
+    "gitlab",
+    "gitee",
+    "issues"
+  ],
   "engines": {
     "vscode": "^1.74.0"
   },
   "categories": [
     "Other"
   ],
-  "keywords": [
-    "git",
-    "commit",
-    "conventional",
-    "format",
-    "issues"
+  "activationEvents": [
+    "onCommand:CommitHelper.formatMessage",
+    "onView:workbench.scm"
   ],
-  "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "CommitHelper.formatMessage",
-        "title": "Format as Conventional Commit",
+        "title": "格式化提交消息",
+        "category": "Commit Helper",
         "icon": "$(tag)"
       }
     ],
@@ -32,30 +47,53 @@
         {
           "command": "CommitHelper.formatMessage",
           "when": "scmProvider == git",
-          "group": "navigation@2"
+          "group": "navigation"
+        }
+      ],
+      "scm/resourceGroup/context": [
+        {
+          "command": "CommitHelper.formatMessage",
+          "when": "scmProvider == git",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "CommitHelper.formatMessage",
+          "when": "scmProvider == git"
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "CommitHelper.formatMessage",
+        "key": "ctrl+shift+g ctrl+f",
+        "mac": "cmd+shift+g cmd+f",
+        "when": "scmProvider == git"
+      }
+    ],
     "configuration": {
-      "title": "CommitHelper",
+      "title": "Commit Helper",
       "properties": {
         "commitHelper.githubToken": {
           "type": "string",
           "default": "",
-          "description": "GitHub Personal Access Token for fetching issues",
-          "scope": "application"
+          "description": "GitHub访问令牌，用于获取议题信息"
         },
         "commitHelper.gitlabToken": {
-          "type": "string", 
+          "type": "string",
           "default": "",
-          "description": "GitLab Personal Access Token for fetching issues",
-          "scope": "application"
+          "description": "GitLab访问令牌，用于获取议题信息"
+        },
+        "commitHelper.localGitlabToken": {
+          "type": "string",
+          "default": "",
+          "description": "本地GitLab实例访问令牌"
         },
         "commitHelper.giteeToken": {
           "type": "string",
           "default": "",
-          "description": "Gitee Personal Access Token for fetching issues", 
-          "scope": "application"
+          "description": "Gitee访问令牌，用于获取议题信息"
         }
       }
     }
@@ -64,16 +102,12 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js",
-    "package": "vsce package",
-    "publish": "vsce publish"
+    "package": "vsce package"
   },
   "devDependencies": {
     "@types/vscode": "^1.74.0",
     "@types/node": "16.x",
-    "@vscode/vsce": "^2.15.0",
-    "typescript": "^4.9.4"
+    "typescript": "^4.9.4",
+    "@vscode/vsce": "^3.6.0"
   }
 }

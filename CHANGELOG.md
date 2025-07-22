@@ -2,7 +2,7 @@
 
 ## [1.0.0]
 
-- Initial release
-- Support for formatting existing commit messages to conventional commit format
-- Integration with VSCode Git extension
-- Support for commit types, scope, breaking changes, and issue linking
+- 初始版本发布
+- 支持约定式提交格式化
+- 集成 GitHub/GitLab/Gitee 议题
+- 智能格式检测和换行保护
