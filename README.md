@@ -1,4 +1,4 @@
-# Conventional Commit Formatter
+# CommitHelper
 
 这是一个VSCode插件，用于将现有的提交消息（如Copilot生成的）格式化为约定式提交规范。
 
