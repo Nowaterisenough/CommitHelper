@@ -12,8 +12,8 @@ const COMMIT_TYPES = [
     { label: 'perf', description: '性能优化 (A code change that improves performance)' },
     { label: 'test', description: '测试相关 (Adding missing tests or correcting existing tests)' },
     { label: 'chore', description: '构建过程或辅助工具的变动 (Changes to the build process or auxiliary tools)' },
-    { label: 'ci', description: 'CI配置 (Changes to our CI configuration files and scripts)' },
     { label: 'build', description: '构建系统 (Changes that affect the build system or external dependencies)' },
+    { label: 'ci', description: 'CI配置 (Changes to our CI configuration files and scripts)' },
     { label: 'revert', description: '回滚 (Reverts a previous commit)' }
 ];
 
@@ -34,7 +34,7 @@ interface RepoInfo {
 
 // 添加 IssueQuickPickItem 接口
 interface IssueQuickPickItem extends vscode.QuickPickItem {
-    issue: Issue | null;
+    issue: Issue;
 }
 
 // 添加 ParsedMessage 接口
@@ -76,9 +76,6 @@ export function activate(context: vscode.ExtensionContext) {
     // 创建输出频道
     outputChannel = vscode.window.createOutputChannel('CommitHelper');
     context.subscriptions.push(outputChannel);
-    
-    // 可选：自动显示输出面板（开发阶段使用）
-    // outputChannel.show(true);
     
     logToOutput('CommitHelper 插件已激活');
 
@@ -321,203 +318,13 @@ function parseGitUrl(url: string): RepoInfo | null {
     return null;
 }
 
-// 基于 Copilot 生成提交消息
-async function generateCommitMessageFromChanges(): Promise<string | null> {
-    try {
-        // 首先检查 Copilot 是否可用
-        const copilotExtension = vscode.extensions.getExtension('GitHub.copilot');
-        if (!copilotExtension || !copilotExtension.isActive) {
-            console.log('Copilot 扩展未找到或未激活');
-            return null;
-        }
-
-        const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
-        if (!gitExtension) {
-            console.log('Git 扩展未找到');
-            return null;
-        }
-        
-        const git = gitExtension.getAPI(1);
-        if (git.repositories.length === 0) {
-            console.log('未找到 Git 仓库');
-            return null;
-        }
-        
-        const repository = git.repositories[0];
-        const changes = repository.state.workingTreeChanges;
-        
-        if (changes.length === 0) {
-            console.log('没有检测到代码变更');
-            return null;
-        }
-
-        console.log(`检测到 ${changes.length} 个文件变更`);
-
-        // 调用 Git 提交框的 Copilot 功能
-        const copilotMessage = await tryGitCommitCompletion();
-        
-        return copilotMessage;
-        
-    } catch (error) {
-        console.error('Copilot 生成提交消息失败:', error);
-        return null;
-    }
-}
-
-// 尝试调用 Git 提交框中的 Copilot 生成按钮
-async function tryGitCommitCompletion(): Promise<string | null> {
-    try {
-        // 获取 Git 仓库
-        const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
-        if (!gitExtension) {
-            console.log('Git 扩展未找到');
-            return null;
-        }
-        
-        const git = gitExtension.getAPI(1);
-        if (git.repositories.length === 0) {
-            console.log('未找到 Git 仓库');
-            return null;
-        }
-        
-        const repository = git.repositories[0];
-        const originalMessage = repository.inputBox.value;
-        
-        // 方法1: 尝试带参数的调用
-        // try {
-        //     console.log('尝试方法1: 带参数调用 Copilot');
-        //     await vscode.commands.executeCommand('github.copilot.git.generateCommitMessage', repository);
-            
-        //     // 等待生成完成
-        //     await new Promise(resolve => setTimeout(resolve, 5000));
-            
-        //     const newMessage = repository.inputBox.value;
-        //     if (newMessage && newMessage !== originalMessage && newMessage.trim()) {
-        //         console.log('方法1成功:', newMessage);
-        //         return newMessage;
-        //     }
-        // } catch (error) {
-        //     console.log('方法1失败:', error);
-        // }
-
-        // 方法2: 尝试先聚焦到 Git 提交框
-        try {
-            logToOutput('尝试方法2: 先聚焦再调用');
-            
-            // 先聚焦到 SCM 视图
-            await vscode.commands.executeCommand('workbench.view.scm');
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            // 聚焦到提交消息输入框
-            await vscode.commands.executeCommand('scm.viewNextCommit');
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            // 再调用 Copilot
-            await vscode.commands.executeCommand('github.copilot.git.generateCommitMessage');
-            
-            // 等待生成完成
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            
-            const newMessage = repository.inputBox.value;
-            if (newMessage && newMessage !== originalMessage && newMessage.trim()) {
-                logToOutput('方法2成功:', newMessage);
-                return newMessage;
-            }
-        } catch (error) {
-            logToOutput('方法2失败:', error);
-        }
-
-        // 方法4: 尝试通过 URI 调用
-        try {
-            logToOutput('尝试方法4: URI 调用');
-            const uri = vscode.Uri.parse('command:github.copilot.git.generateCommitMessage');
-            await vscode.commands.executeCommand('vscode.open', uri);
-            
-            // 等待生成完成
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            
-            const newMessage = repository.inputBox.value;
-            if (newMessage && newMessage !== originalMessage && newMessage.trim()) {
-                logToOutput('方法4成功:', newMessage);
-                return newMessage;
-            }
-        } catch (error) {
-            logToOutput('方法4失败:', error);
-        }
-
-        // 方法5: 尝试模拟用户操作
-        try {
-            logToOutput('尝试方法5: 模拟用户操作');
-            
-            // 确保有一些文件变更
-            const changes = repository.state.workingTreeChanges;
-            if (changes.length === 0) {
-                logToOutput('没有文件变更，无法生成提交消息');
-                return null;
-            }
-
-            // 打开 Git 视图
-            await vscode.commands.executeCommand('workbench.view.scm');
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // 尝试触发提交消息生成的快捷键（如果存在）
-            // 这些是一些可能的快捷键组合
-            const possibleShortcuts = [
-                'workbench.action.terminal.sendSequence',
-                'editor.action.triggerSuggest',
-                'github.copilot.generate'
-            ];
-
-            for (const shortcut of possibleShortcuts) {
-                try {
-                    await vscode.commands.executeCommand(shortcut);
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    
-                    const newMessage = repository.inputBox.value;
-                    if (newMessage && newMessage !== originalMessage && newMessage.trim()) {
-                        logToOutput(`方法5成功 (${shortcut}):`, newMessage);
-                        return newMessage;
-                    }
-                } catch (error) {
-                    logToOutput(`快捷键 ${shortcut} 失败:`, error);
-                }
-            }
-        } catch (error) {
-            logToOutput('方法5失败:', error);
-        }
-
-        logToOutput('所有调用 Copilot 的方法都失败了');
-        return null;
-        
-    } catch (error) {
-        console.error('Git 提交补全失败:', error);
-        return null;
-    }
-}
-
-// 手动输入提交消息
-async function manualInputCommitMessage(): Promise<string | null> {
-    const message = await vscode.window.showInputBox({
-        prompt: '请输入提交消息',
-        placeHolder: '例如: 添加用户登录功能',
-        validateInput: (value) => {
-            if (!value.trim()) {
-                return '提交消息不能为空';
-            }
-            return null;
-        }
-    });
-    
-    return message || null;
-}
-
 // 获取开放议题
-async function fetchIssues(repoInfo: RepoInfo): Promise<Issue[]> {
+async function fetchIssues(repoInfo: RepoInfo, forceRefresh: boolean = false): Promise<Issue[]> {
     const cacheKey = `${repoInfo.platform}-${repoInfo.owner}-${repoInfo.repo}`;
     const cached = issueCache.get(cacheKey);
     
-    // 检查缓存
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    // 如果不强制刷新，检查缓存
+    if (!forceRefresh && cached && Date.now() - cached.timestamp < CACHE_DURATION) {
         console.log('使用缓存的议题数据');
         return cached.issues;
     }
@@ -745,92 +552,11 @@ function httpRequest(url: string, options: any = {}): Promise<string> {
 }
 
 async function formatExistingCommitMessage() {
-    let currentMessage = await getCurrentCommitMessage();
-    
-    // 如果提交消息为空，提供生成选项
-    if (!currentMessage.trim()) {
-        // 检查 Copilot 是否可用
-        const copilotExtension = vscode.extensions.getExtension('GitHub.copilot');
-        const copilotAvailable = copilotExtension?.isActive || false;
-        
-        let generateOptions;
-        
-        if (copilotAvailable) {
-            generateOptions = [
-                { label: '$(copilot) 使用 Copilot 智能生成', value: 'copilot-generate' },
-                { label: '$(edit) 手动输入', value: 'manual' },
-                { label: '$(x) 取消', value: 'cancel' }
-            ];
-        } else {
-            generateOptions = [
-                { label: '$(edit) 手动输入', value: 'manual' },
-                { label: '$(x) 取消', value: 'cancel' }
-            ];
-        }
-        
-        const generateChoice = await vscode.window.showQuickPick(generateOptions, {
-            placeHolder: copilotAvailable ? 
-                '提交消息为空，推荐使用 Copilot 智能生成' : 
-                '提交消息为空，请手动输入'
-        });
-        
-        if (!generateChoice || generateChoice.value === 'cancel') {
-            return;
-        }
-        
-        switch (generateChoice.value) {
-            case 'copilot-generate':
-                // 显示进度提示
-                const progressOptions = {
-                    location: vscode.ProgressLocation.Notification,
-                    title: "正在使用 Copilot 生成提交消息...",
-                    cancellable: false
-                };
-                
-                currentMessage = await vscode.window.withProgress(progressOptions, async (progress) => {
-                    progress.report({ increment: 30, message: "分析代码变更..." });
-                    
-                    const result = await generateCommitMessageFromChanges();
-                    
-                    progress.report({ increment: 70, message: "生成提交消息..." });
-                    
-                    return result || '';
-                });
-                
-                if (!currentMessage) {
-                    const retryChoice = await vscode.window.showWarningMessage(
-                        'Copilot 无法生成提交消息，可能是因为：\n1. 没有检测到代码变更\n2. Copilot 服务暂时不可用\n3. 网络连接问题',
-                        '手动输入',
-                        '取消'
-                    );
-                    
-                    if (retryChoice === '手动输入') {
-                        currentMessage = await manualInputCommitMessage() || '';
-                    } else {
-                        return;
-                    }
-                } else {
-                    vscode.window.showInformationMessage(`✨ Copilot 已生成提交消息: "${currentMessage}"`);
-                }
-                break;
-            case 'manual':
-                currentMessage = await manualInputCommitMessage() || '';
-                break;
-        }
-        
-        if (!currentMessage.trim()) {
-            vscode.window.showWarningMessage('未生成有效的提交消息');
-            return;
-        }
-        
-        // 将生成的消息设置到提交框中
-        await setCommitMessage(currentMessage);
-    }
-
-    // 明确指定 parsedMessage 的类型
+    // 步骤1：选择提交类型，同时异步获取议题（强制刷新缓存）
+    const currentMessage = await getCurrentCommitMessage();
     let parsedMessage: ParsedMessage;
     
-    // 如果已经是约定式提交格式，直接解析，不再询问
+    // 如果已经是约定式提交格式，直接解析
     if (isConventionalCommit(currentMessage)) {
         parsedMessage = parseConventionalCommit(currentMessage);
     } else {
@@ -844,22 +570,42 @@ async function formatExistingCommitMessage() {
         };
     }
 
-    // 选择提交类型（预选智能推测的类型）
+    // 开始异步获取议题列表（强制刷新缓存）
+    const issuesPromise = getIssuesAsyncWithRefresh();
+
+    // 创建提交类型选择项（单选）
     const commitTypeItems = COMMIT_TYPES.map(type => ({
-        ...type,
-        picked: type.label === parsedMessage.type // 现在 parsedMessage 有明确的类型
+        label: type.label,
+        description: type.description,
+        picked: type.label === parsedMessage.type
     }));
-    
-    const commitType = await vscode.window.showQuickPick(commitTypeItems, {
-        placeHolder: `选择最适合的提交类型 (推荐: ${parsedMessage.type})`,
-        matchOnDescription: true
+
+    const selectedCommitType = await vscode.window.showQuickPick(commitTypeItems, {
+        placeHolder: `选择提交类型 (推荐: ${parsedMessage.type})`,
+        matchOnDescription: true,
+        ignoreFocusOut: true
     });
 
-    if (!commitType) {
+    if (!selectedCommitType) {
         return;
     }
 
-    // 输入作用域（预填智能推测的作用域）
+    const commitType = selectedCommitType.label;
+
+    // 询问是否为破坏性变更
+    const isBreakingChange = await vscode.window.showQuickPick([
+        { label: '否', description: '这不是破坏性变更', value: false },
+        { label: '是', description: '这是破坏性变更 (BREAKING CHANGE)', value: true }
+    ], {
+        placeHolder: '这是破坏性变更吗？',
+        ignoreFocusOut: true
+    });
+
+    if (!isBreakingChange) {
+        return;
+    }
+
+    // 输入作用域
     const scope = await vscode.window.showInputBox({
         prompt: '输入作用域 (可选)',
         placeHolder: '例如: auth, api, ui, components',
@@ -870,149 +616,61 @@ async function formatExistingCommitMessage() {
         return;
     }
 
-    // 选择是否为破坏性变更
-    const isBreakingChange = await vscode.window.showQuickPick([
-        { label: '否', description: '这不是破坏性变更', value: false },
-        { label: '是', description: '这是破坏性变更 (BREAKING CHANGE)', value: true }
-    ], {
-        placeHolder: '这是破坏性变更吗？'
-    });
-
-    if (!isBreakingChange) {
-        return;
+    // 步骤2：等待议题获取完成并显示议题选择界面
+    const selectedIssues = await selectIssuesWithRefresh(issuesPromise);
+    if (selectedIssues === undefined) {
+        return; // 用户取消
     }
 
-     // 获取议题信息 - 支持多选
-    let selectedIssues: Issue[] = [];
+    logToOutput(`收到的议题选择结果:`, selectedIssues.map(i => `#${i.number} ${i.title}`));
+
+    // 步骤3：标题填写 - 修复后的逻辑
+    let defaultTitle = '';
     
-    try {
-        const repoInfo = await getRepoInfo();
-        if (repoInfo) {
-            const platformName = repoInfo.platform === 'local-gitlab' ? 
-                `本地GitLab (${repoInfo.hostUrl})` : 
-                repoInfo.platform;
-            
-            vscode.window.showInformationMessage(`正在从 ${platformName} 获取开放议题...`);
-            const issues = await fetchIssues(repoInfo);
-            
-            if (issues.length > 0) {
-                const issueItems: IssueQuickPickItem[] = issues.map(issue => ({
-                    label: `#${issue.number}`,
-                    description: issue.title,
-                    detail: issue.labels?.length ? `标签: ${issue.labels.join(', ')}` : '',
-                    issue: issue
-                }));
-                
-                // 添加"不关联议题"选项
-                issueItems.unshift({
-                    label: '$(x) 不关联议题',
-                    description: '此次提交不关联任何议题',
-                    detail: '',
-                    issue: null
-                });
-                
-                // 添加"手动输入"选项
-                issueItems.push({
-                    label: '$(edit) 手动输入议题号',
-                    description: '手动输入一个或多个议题号',
-                    detail: '',
-                    issue: { number: -1, title: '', url: '' } // 特殊标记
-                });
-                
-                // 使用多选模式
-                const selectedItems = await vscode.window.showQuickPick(issueItems, {
-                    placeHolder: `选择要关联的议题 (共 ${issues.length} 个开放议题，支持多选)`,
-                    matchOnDescription: true,
-                    canPickMany: true, // 启用多选
-                    ignoreFocusOut: true // 避免焦点丢失时关闭
-                });
-                
-                if (selectedItems === undefined) {
-                    return;
-                }
-                
-                // 处理选择结果
-                if (selectedItems.length === 0) {
-                    // 用户没有选择任何项
-                    selectedIssues = [];
-                } else {
-                    // 检查是否选择了特殊选项
-                    const noIssueSelected = selectedItems.some(item => item.issue === null);
-                    const manualInputSelected = selectedItems.some(item => item.issue?.number === -1);
-                    
-                    if (noIssueSelected && selectedItems.length > 1) {
-                        vscode.window.showWarningMessage('不能同时选择"不关联议题"和其他选项，将忽略其他选择');
-                        selectedIssues = [];
-                    } else if (noIssueSelected) {
-                        selectedIssues = [];
-                    } else if (manualInputSelected) {
-                        // 处理手动输入
-                        const manualIssues = await handleManualIssueInput();
-                        if (manualIssues === undefined) {
-                            return; // 用户取消
-                        }
-                        
-                        // 合并手动输入的议题和从列表选择的议题
-                        const listSelectedIssues = selectedItems
-                            .filter(item => item.issue && item.issue.number !== -1)
-                            .map(item => item.issue!);
-                        
-                        selectedIssues = [...listSelectedIssues, ...manualIssues];
-                    } else {
-                        // 正常的多选情况
-                        selectedIssues = selectedItems
-                            .filter(item => item.issue && item.issue.number !== -1)
-                            .map(item => item.issue!);
-                    }
-                }
-                
-                // 显示选择结果
-                if (selectedIssues.length > 0) {
-                    const issueNumbers = selectedIssues.map(issue => `#${issue.number}`).join(', ');
-                    vscode.window.showInformationMessage(`已选择 ${selectedIssues.length} 个议题: ${issueNumbers}`);
-                }
-            } else {
-                vscode.window.showInformationMessage(`未在 ${platformName} 找到开放议题`);
-            }
-        }
-    } catch (error) {
-        console.error('获取议题失败:', error);
-        
-        let errorMessage = `获取议题失败: ${error}`;
-        
-        if (error instanceof Error && error.message.includes('rate limit')) {
-            errorMessage += '\n\n💡 建议：配置 GitHub Token 以获得更高的 API 访问限制';
-            
-            const configureToken = await vscode.window.showErrorMessage(
-                errorMessage,
-                '配置 GitHub Token',
-                '稍后配置'
-            );
-            
-            if (configureToken === '配置 GitHub Token') {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'commitHelper.githubToken');
-            }
+    // 清理当前标题，去除类型前缀
+    let cleanCurrentTitle = parsedMessage.title;
+    if (cleanCurrentTitle) {
+        const typePattern = new RegExp(`^${parsedMessage.type}(\\([^)]*\\))?!?:\\s*`, 'i');
+        cleanCurrentTitle = cleanCurrentTitle.replace(typePattern, '').trim();
+    }
+    
+    // 判断是否有有效的当前标题
+    const hasCurrentTitle = cleanCurrentTitle.length > 0;
+    
+    logToOutput(`标题处理状态: hasCurrentTitle=${hasCurrentTitle}, cleanCurrentTitle="${cleanCurrentTitle}", selectedIssues.length=${selectedIssues.length}`);
+    
+    if (selectedIssues.length > 0) {
+        if (!hasCurrentTitle) {
+            // 如果没有当前标题且有选中的议题，直接使用议题标题
+            defaultTitle = selectedIssues[0].title;
+            logToOutput(`原标题为空，使用议题标题: ${defaultTitle}`);
         } else {
-            vscode.window.showWarningMessage(`${errorMessage}，将使用手动输入`);
+            // 如果有当前标题且有选中的议题，询问用户选择
+            const useIssueTitle = await vscode.window.showQuickPick([
+                { label: '使用议题标题', description: selectedIssues[0].title, value: 'issue' },
+                { label: '使用当前标题', description: cleanCurrentTitle, value: 'current' }
+            ], {
+                placeHolder: '检测到已有标题，选择要使用的标题',
+                ignoreFocusOut: true
+            });
+            
+            if (!useIssueTitle) {
+                return;
+            }
+            
+            defaultTitle = useIssueTitle.value === 'issue' ? selectedIssues[0].title : cleanCurrentTitle;
+            logToOutput(`用户选择使用${useIssueTitle.value === 'issue' ? '议题' : '当前'}标题: ${defaultTitle}`);
         }
-        
-        // 回退到手动输入
-        const manualIssues = await handleManualIssueInput();
-        if (manualIssues !== undefined) {
-            selectedIssues = manualIssues;
-        }
+    } else {
+        // 没有选中议题，使用当前标题
+        defaultTitle = cleanCurrentTitle;
+        logToOutput(`无议题选择，使用当前标题: ${defaultTitle}`);
     }
 
-    // 确认标题 - 去除已有的类型前缀避免重复
-    let cleanTitle = parsedMessage.title;
-    // 如果标题以类型开头，移除它
-    const typePattern = new RegExp(`^${parsedMessage.type}(\\([^)]*\\))?!?:\\s*`, 'i');
-    cleanTitle = cleanTitle.replace(typePattern, '');
-    
     const finalTitle = await vscode.window.showInputBox({
-        prompt: '确认提交标题',
+        prompt: '输入提交标题',
         placeHolder: '简短描述这次提交的内容',
-        value: cleanTitle,
+        value: defaultTitle,
         validateInput: (value) => {
             if (!value.trim()) {
                 return '提交标题不能为空';
@@ -1028,73 +686,141 @@ async function formatExistingCommitMessage() {
         return;
     }
 
-    // 确认详细描述
-    let finalBody = '';
-    if (parsedMessage.body) {
-        const bodyResult = await vscode.window.showInputBox({
-            prompt: '确认详细描述 (可选，支持多行)',
-            placeHolder: '详细描述这次变更的内容和原因',
-            value: parsedMessage.body
-        });
-        
-        if (bodyResult === undefined) {
-            return;
-        }
-        finalBody = bodyResult;
+    // 步骤4：内容填写
+    const finalBody = await vscode.window.showInputBox({
+        prompt: '输入详细描述 (可选)',
+        placeHolder: '详细描述这次变更的内容和原因',
+        value: parsedMessage.body
+    });
+
+    if (finalBody === undefined) {
+        return;
     }
 
     // 构建约定式提交消息
     const formattedMessage = buildConventionalCommitMessage(
-        commitType.label,
+        commitType,
         scope,
         finalTitle,
         finalBody,
         isBreakingChange.value,
-        selectedIssues // 传入议题数组而不是单个议题号
+        selectedIssues
     );
 
     await setCommitMessage(formattedMessage);
     vscode.window.showInformationMessage('✅ 约定式提交消息已更新');
 }
 
-async function handleManualIssueInput(): Promise<Issue[] | undefined> {
-    const manualInput = await vscode.window.showInputBox({
-        prompt: '输入议题号 (多个议题用逗号分隔)',
-        placeHolder: '例如: 123, 456, 789 (不需要#号)',
-        validateInput: (value) => {
-            if (value && value.trim()) {
-                const numbers = value.split(',').map(n => n.trim()).filter(n => n);
-                const invalidNumbers = numbers.filter(n => !/^\d+$/.test(n));
-                if (invalidNumbers.length > 0) {
-                    return `包含无效的议题号: ${invalidNumbers.join(', ')}`;
-                }
-            }
-            return null;
+// 异步获取议题列表并强制刷新缓存
+async function getIssuesAsyncWithRefresh(): Promise<Issue[]> {
+    try {
+        const repoInfo = await getRepoInfo();
+        if (!repoInfo) {
+            return [];
         }
-    });
+        
+        // 强制刷新缓存
+        const issues = await fetchIssues(repoInfo, true);
+        return issues;
+    } catch (error) {
+        console.error('获取议题失败:', error);
+        return [];
+    }
+}
+
+// 选择议题，支持刷新功能 - 修复事件处理逻辑
+async function selectIssuesWithRefresh(initialIssuesPromise: Promise<Issue[]>): Promise<Issue[]> {
+    let issues = await initialIssuesPromise;
     
-    if (manualInput === undefined) {
-        return undefined; // 用户取消
+    // 如果没有议题，直接返回空数组，跳过议题选择
+    if (issues.length === 0) {
+        vscode.window.showInformationMessage('未找到开放议题，跳过议题关联');
+        return [];
     }
     
-    if (!manualInput.trim()) {
-        return []; // 用户输入为空
+    while (true) {
+        const issueItems: IssueQuickPickItem[] = [];
+        
+        // 只显示议题列表
+        issues.forEach(issue => {
+            issueItems.push({
+                label: `#${issue.number}`,
+                description: issue.title,
+                detail: issue.labels?.length ? `标签: ${issue.labels.join(', ')}` : '',
+                issue: issue
+            });
+        });
+        
+        // 创建快捷选择器
+        const quickPick = vscode.window.createQuickPick<IssueQuickPickItem>();
+        quickPick.items = issueItems;
+        quickPick.placeholder = `选择要关联的议题 (支持多选，共 ${issues.length} 个) - 输入 /refresh 刷新议题列表`;
+        quickPick.canSelectMany = true;
+        quickPick.ignoreFocusOut = true;
+        
+        return new Promise<Issue[]>((resolve) => {
+            let isResolved = false; // 添加标志防止重复resolve
+            let refreshRequested = false;
+
+            quickPick.onDidAccept(() => {
+                if (isResolved) return; // 防止重复处理
+                
+                const selectedItems = quickPick.selectedItems;
+                const selectedIssues = selectedItems.map(item => item.issue);
+                
+                logToOutput(`用户在QuickPick中选择了 ${selectedIssues.length} 个议题:`, selectedIssues.map(i => `#${i.number} ${i.title}`));
+                
+                isResolved = true;
+                quickPick.dispose();
+                resolve(selectedIssues);
+            });
+            
+            // 监听按键事件来支持刷新
+            quickPick.onDidChangeValue((value) => {
+                if (isResolved) return; // 防止重复处理
+                
+                // 当用户输入特殊命令时触发刷新
+                if (value === '/refresh' || value === 'refresh') {
+                    refreshRequested = true;
+                    isResolved = true;
+                    quickPick.hide();
+                }
+            });
+            
+            quickPick.onDidHide(() => {
+                if (isResolved) return; // 防止重复处理
+                
+                isResolved = true;
+                quickPick.dispose();
+                
+                if (refreshRequested) {
+                    refreshRequested = false;
+                    vscode.window.showInformationMessage('正在刷新议题列表...');
+                    
+                    // 重新获取议题
+                    getIssuesAsyncWithRefresh().then(newIssues => {
+                        issues = newIssues;
+                        if (issues.length === 0) {
+                            vscode.window.showInformationMessage('刷新完成，未找到开放议题');
+                            resolve([]);
+                        } else {
+                            vscode.window.showInformationMessage(`已刷新，找到 ${issues.length} 个议题`);
+                            // 递归调用继续选择
+                            selectIssuesWithRefresh(Promise.resolve(issues)).then(resolve);
+                        }
+                    }).catch(error => {
+                        vscode.window.showErrorMessage(`刷新失败: ${error}`);
+                        selectIssuesWithRefresh(Promise.resolve(issues)).then(resolve);
+                    });
+                } else {
+                    logToOutput('用户取消议题选择');
+                    resolve([]); // 用户取消，返回空数组
+                }
+            });
+            
+            quickPick.show();
+        });
     }
-    
-    // 解析输入的议题号
-    const issueNumbers = manualInput.split(',')
-        .map(n => n.trim())
-        .filter(n => n && /^\d+$/.test(n))
-        .map(n => parseInt(n));
-    
-    // 去重
-    const uniqueNumbers = [...new Set(issueNumbers)];
-    
-    return uniqueNumbers.map(number => ({
-        number: number,
-        title: '',
-        url: ''
-    }));
 }
 
 function parseCommitMessage(message: string): { title: string; body: string } {
@@ -1117,7 +843,7 @@ function buildConventionalCommitMessage(
     title: string, 
     body: string, 
     isBreakingChange: boolean, 
-    issues: Issue[] // 改为议题数组
+    issues: Issue[]
 ): string {
     let typeScope = type;
     if (scope.trim()) {
