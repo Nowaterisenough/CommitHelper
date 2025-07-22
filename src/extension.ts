@@ -2,21 +2,21 @@ import * as vscode from 'vscode';
 
 // 约定式提交类型
 const COMMIT_TYPES = [
-    { label: 'feat', description: '✨ 新功能 (A new feature)' },
-    { label: 'fix', description: '🐛 修复问题 (A bug fix)' },
-    { label: 'docs', description: '📚 文档变更 (Documentation only changes)' },
-    { label: 'style', description: '💎 代码格式 (Changes that do not affect the meaning of the code)' },
-    { label: 'refactor', description: '📦 重构 (A code change that neither fixes a bug nor adds a feature)' },
-    { label: 'perf', description: '🚀 性能优化 (A code change that improves performance)' },
-    { label: 'test', description: '🚨 测试相关 (Adding missing tests or correcting existing tests)' },
-    { label: 'chore', description: '🛠 构建过程或辅助工具的变动 (Changes to the build process or auxiliary tools)' },
-    { label: 'ci', description: '⚙️ CI配置 (Changes to our CI configuration files and scripts)' },
-    { label: 'build', description: '📦 构建系统 (Changes that affect the build system or external dependencies)' },
-    { label: 'revert', description: '⏪ 回滚 (Reverts a previous commit)' }
+    { label: 'feat', description: '新功能 (A new feature)' },
+    { label: 'fix', description: '修复问题 (A bug fix)' },
+    { label: 'docs', description: '文档变更 (Documentation only changes)' },
+    { label: 'style', description: '代码格式 (Changes that do not affect the meaning of the code)' },
+    { label: 'refactor', description: '重构 (A code change that neither fixes a bug nor adds a feature)' },
+    { label: 'perf', description: '性能优化 (A code change that improves performance)' },
+    { label: 'test', description: '测试相关 (Adding missing tests or correcting existing tests)' },
+    { label: 'chore', description: '构建过程或辅助工具的变动 (Changes to the build process or auxiliary tools)' },
+    { label: 'ci', description: 'CI配置 (Changes to our CI configuration files and scripts)' },
+    { label: 'build', description: '构建系统 (Changes that affect the build system or external dependencies)' },
+    { label: 'revert', description: '回滚 (Reverts a previous commit)' }
 ];
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('Conventional Commit Formatter is now active!');
+    console.log('CommitHelper is now active!');
     
     let disposable = vscode.commands.registerCommand('CommitHelper.formatMessage', async () => {
         try {
@@ -29,6 +29,55 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(disposable);
 }
 
+// 检查消息是否已经是约定式提交格式
+function isConventionalCommit(message: string): boolean {
+    const firstLine = message.split('\n')[0];
+    // 匹配约定式提交格式: type(scope): description 或 type: description
+    const conventionalPattern = /^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\([^)]+\))?!?:\s+.+/;
+    return conventionalPattern.test(firstLine);
+}
+
+// 从约定式提交中提取信息
+function parseConventionalCommit(message: string): {
+    type: string;
+    scope: string;
+    title: string;
+    body: string;
+    isBreakingChange: boolean;
+} {
+    const lines = message.split('\n');
+    const firstLine = lines[0];
+    
+    // 解析第一行: type(scope)!: title
+    const match = firstLine.match(/^([^(:!]+)(\(([^)]+)\))?(!)?:\s*(.+)$/);
+    
+    if (!match) {
+        // 如果解析失败，返回默认值
+        const parsed = parseCommitMessage(message);
+        return {
+            type: 'feat',
+            scope: '',
+            title: parsed.title,
+            body: parsed.body,
+            isBreakingChange: false
+        };
+    }
+    
+    const type = match[1];
+    const scope = match[3] || '';
+    const isBreakingChange = !!match[4];
+    const title = match[5];
+    
+    // 获取 body（跳过空行）
+    let bodyStart = 1;
+    while (bodyStart < lines.length && !lines[bodyStart].trim()) {
+        bodyStart++;
+    }
+    const body = lines.slice(bodyStart).join('\n').trim();
+    
+    return { type, scope, title, body, isBreakingChange };
+}
+
 async function formatExistingCommitMessage() {
     // 获取当前的提交消息
     const currentMessage = await getCurrentCommitMessage();
@@ -38,18 +87,33 @@ async function formatExistingCommitMessage() {
         return;
     }
 
-    // 解析现有消息
-    const parsedMessage = parseCommitMessage(currentMessage);
+    // 检查是否已经是约定式提交格式
+    let parsedMessage;
+    let isAlreadyConventional = false;
     
-    // 显示当前消息预览
-    const shouldContinue = await vscode.window.showInformationMessage(
-        `当前提交消息:\n\n${currentMessage}\n\n是否要将其格式化为约定式提交？`,
-        '是的，格式化',
-        '取消'
-    );
-    
-    if (shouldContinue !== '是的，格式化') {
-        return;
+    if (isConventionalCommit(currentMessage)) {
+        const shouldReformat = await vscode.window.showInformationMessage(
+            '检测到已经是约定式提交格式，是否需要重新格式化？',
+            '重新格式化',
+            '取消'
+        );
+        
+        if (shouldReformat !== '重新格式化') {
+            return;
+        }
+        
+        parsedMessage = parseConventionalCommit(currentMessage);
+        isAlreadyConventional = true;
+    } else {
+        // 解析普通提交消息
+        parsedMessage = parseCommitMessage(currentMessage);
+        parsedMessage = {
+            type: 'feat', // 默认类型
+            scope: '',
+            title: parsedMessage.title,
+            body: parsedMessage.body,
+            isBreakingChange: false
+        };
     }
 
     // 步骤1: 选择提交类型
@@ -66,7 +130,7 @@ async function formatExistingCommitMessage() {
     const scope = await vscode.window.showInputBox({
         prompt: '输入作用域 (可选)',
         placeHolder: '例如: auth, api, ui, components',
-        value: ''
+        value: parsedMessage.scope || ''
     });
 
     if (scope === undefined) {
@@ -98,7 +162,7 @@ async function formatExistingCommitMessage() {
 
     // 步骤5: 确认或修改标题
     const finalTitle = await vscode.window.showInputBox({
-        prompt: '确认提交标题 (基于Copilot生成的内容)',
+        prompt: '确认提交标题',
         placeHolder: '简短描述这次提交的内容',
         value: parsedMessage.title,
         validateInput: (value) => {
@@ -116,19 +180,23 @@ async function formatExistingCommitMessage() {
         return;
     }
 
-    // 步骤6: 确认或修改详细描述
-    const finalBody = await vscode.window.showInputBox({
-        prompt: '确认详细描述 (基于Copilot生成的内容，可选)',
-        placeHolder: '详细描述这次变更的内容和原因',
-        value: parsedMessage.body
-    });
-
-    if (finalBody === undefined) {
-        return;
+    // 步骤6: 确认或修改详细描述（支持多行输入）
+    let finalBody = '';
+    if (parsedMessage.body) {
+        const bodyResult = await vscode.window.showInputBox({
+            prompt: '确认详细描述 (可选，支持多行)',
+            placeHolder: '详细描述这次变更的内容和原因',
+            value: parsedMessage.body
+        });
+        
+        if (bodyResult === undefined) {
+            return;
+        }
+        finalBody = bodyResult;
     }
 
     // 构建新的约定式提交消息
-    const formattedMessage = await buildConventionalCommitMessage(
+    const formattedMessage = buildConventionalCommitMessage(
         commitType.label,
         scope,
         finalTitle,
@@ -137,39 +205,13 @@ async function formatExistingCommitMessage() {
         issueNumber
     );
 
-    // 预览最终消息
-    const confirmed = await vscode.window.showInformationMessage(
-        `格式化后的约定式提交消息:\n\n${formattedMessage}\n\n确认使用此消息吗？`,
-        '确认使用',
-        '重新编辑',
-        '取消'
-    );
-
-    if (confirmed === '确认使用') {
-        await setCommitMessage(formattedMessage);
-        vscode.window.showInformationMessage('✅ 约定式提交消息已更新');
-    } else if (confirmed === '重新编辑') {
-        // 允许用户手动编辑最终消息
-        const manualEdit = await vscode.window.showInputBox({
-            prompt: '手动编辑提交消息',
-            value: formattedMessage,
-            validateInput: (value) => {
-                if (!value.trim()) {
-                    return '提交消息不能为空';
-                }
-                return null;
-            }
-        });
-        
-        if (manualEdit) {
-            await setCommitMessage(manualEdit);
-            vscode.window.showInformationMessage('✅ 提交消息已更新');
-        }
-    }
+    // 直接设置消息，不再显示预览确认
+    await setCommitMessage(formattedMessage);
+    vscode.window.showInformationMessage('✅ 约定式提交消息已更新');
 }
 
 function parseCommitMessage(message: string): { title: string; body: string } {
-    const lines = message.split('\n');
+    const lines = message.split(/\r?\n/); // 支持不同的换行符
     const title = lines[0] || '';
     
     // 找到第一个非空行作为body的开始
@@ -183,14 +225,14 @@ function parseCommitMessage(message: string): { title: string; body: string } {
     return { title, body };
 }
 
-async function buildConventionalCommitMessage(
+function buildConventionalCommitMessage(
     type: string, 
     scope: string, 
     title: string, 
     body: string, 
     isBreakingChange: boolean, 
     issueNumber: string
-): Promise<string> {
+): string {
     // 构建类型和作用域部分
     let typeScope = type;
     if (scope.trim()) {
@@ -206,22 +248,14 @@ async function buildConventionalCommitMessage(
     const normalizedTitle = title.charAt(0).toLowerCase() + title.slice(1);
     let message = `${typeScope}: ${normalizedTitle}`;
     
-    // 添加详细描述
+    // 添加详细描述，保持原有的换行格式
     if (body.trim()) {
         message += `\n\n${body}`;
     }
     
     // 添加破坏性变更说明
     if (isBreakingChange) {
-        const breakingChangeDesc = await vscode.window.showInputBox({
-            prompt: '描述破坏性变更的具体内容',
-            placeHolder: '详细说明什么发生了破坏性变更以及如何迁移',
-            value: normalizedTitle
-        });
-        
-        if (breakingChangeDesc) {
-            message += `\n\nBREAKING CHANGE: ${breakingChangeDesc}`;
-        }
+        message += `\n\nBREAKING CHANGE: ${normalizedTitle}`;
     }
     
     // 添加Issue引用

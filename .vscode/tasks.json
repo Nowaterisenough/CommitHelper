@@ -3,13 +3,18 @@
     "tasks": [
         {
             "type": "npm",
-            "script": "watch",
+            "script": "compile",
             "group": "build",
-            "presentation": {
-                "reveal": "never"
-            },
-            "isBackground": true,
-            "problemMatcher": "$tsc-watch"
+            "problemMatcher": [],
+            "label": "npm: compile",
+            "detail": "tsc -p ./"
+        },
+        {
+            "type": "npm",
+            "script": "package",
+            "problemMatcher": [],
+            "label": "npm: package",
+            "detail": "vsce package"
         }
     ]
 }
