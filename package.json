@@ -2,7 +2,7 @@
   "name": "commit-helper",
   "displayName": "Commit Helper",
   "description": "帮助格式化Git提交消息为约定式提交格式，支持GitHub/GitLab/Gitee议题关联",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "NoWaterisEnough",
   "license": "MIT",
   "repository": {
@@ -105,9 +105,13 @@
     "package": "vsce package"
   },
   "devDependencies": {
-    "@types/vscode": "^1.74.0",
     "@types/node": "16.x",
-    "typescript": "^4.9.4",
-    "@vscode/vsce": "^3.6.0"
+    "@types/node-fetch": "^2.6.12",
+    "@types/vscode": "^1.74.0",
+    "@vscode/vsce": "^3.6.0",
+    "typescript": "^4.9.4"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
   }
 }
