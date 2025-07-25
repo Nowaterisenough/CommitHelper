@@ -546,6 +546,20 @@ async function fetchIssues(repoInfo: RepoInfo): Promise<Issue[]> {
     }
 }
 
+// 清理议题标题，移除前缀
+function cleanIssueTitle(title: string): string {
+    // 移除常见的前缀模式：[TYPE]、【TYPE】、(TYPE)、TYPE:、TYPE-
+    const cleanedTitle = title
+        .replace(/^\[([^\]]+)\]\s*-?\s*/, '') // 移除 [TEST]、[FEATURE] 等
+        .replace(/^【([^】]+)】\s*-?\s*/, '') // 移除 【测试】、【功能】 等
+        .replace(/^\(([^)]+)\)\s*-?\s*/, '') // 移除 (TEST)、(FEATURE) 等
+        .replace(/^([A-Z]+):\s*/, '') // 移除 TEST:、FEATURE: 等
+        .replace(/^([A-Z]+)-\s*/, '') // 移除 TEST-、FEATURE- 等
+        .trim();
+    
+    return cleanedTitle || title; // 如果清理后为空，返回原标题
+}
+
 // 主要的格式化函数（修复版本）
 async function formatCommitMessage(): Promise<void> {
     logToOutput('开始格式化提交消息');
@@ -567,87 +581,102 @@ async function formatCommitMessage(): Promise<void> {
 
         logToOutput('当前提交消息', { currentMessage });
 
-        // 获取议题列表
-        const allIssues = await fetchIssues(repoInfo);
-        logToOutput('获取到的所有议题', { count: allIssues.length, issues: allIssues.map(i => ({ number: i.number, title: i.title.substring(0, 50) + '...' })) });
+        // 检查是否已有内容
+        const hasExistingContent = currentMessage.trim().length > 0;
+        let commitTitle = '';
 
-        // 让用户选择议题（可选）
+        // 无论是否有现有内容，都获取议题列表
+        logToOutput('获取议题列表以供绑定选择');
+        const allIssues = await fetchIssues(repoInfo);
+        logToOutput('获取到的所有议题', { 
+            count: allIssues.length, 
+            issues: allIssues.map(i => ({ 
+                number: i.number, 
+                originalTitle: i.title,
+                cleanedTitle: cleanIssueTitle(i.title).substring(0, 50) + '...'
+            })) 
+        });
+
+        // 让用户选择要绑定的议题（无论是否有现有内容）
         let selectedIssues: Issue[] = [];
         
         if (allIssues.length > 0) {
-            // 创建议题选择列表，包括"不选择议题"选项
+            // 创建议题选择列表
             const issuePickItems = [
                 {
-                    label: '$(issue-opened) 不关联议题',
-                    description: '手动输入提交描述',
+                    label: '$(x) 不绑定议题',
+                    description: '本次提交不关联任何议题',
                     issue: null
                 },
-                ...allIssues.map(issue => ({
-                    label: `$(issue-opened) #${issue.number}`,
-                    description: issue.title,
-                    detail: issue.url,
-                    issue: issue
-                }))
+                ...allIssues.map(issue => {
+                    const cleanedTitle = cleanIssueTitle(issue.title);
+                    return {
+                        label: `$(issue-opened) #${issue.number}`,
+                        description: cleanedTitle,
+                        detail: `原标题: ${issue.title}`,
+                        issue: { ...issue, title: cleanedTitle } // 保存清理后的标题
+                    };
+                })
             ];
 
             const selectedItem = await vscode.window.showQuickPick(issuePickItems, {
-                placeHolder: '选择要关联的议题（可选）',
+                placeHolder: hasExistingContent 
+                    ? '选择要绑定的议题（当前已有提交内容，将保留现有内容）'
+                    : '选择要绑定的议题或不绑定议题',
                 matchOnDescription: true,
                 matchOnDetail: true
             });
 
             if (selectedItem === undefined) {
-                // 用户取消了选择
                 logToOutput('用户取消了议题选择');
                 return;
             }
 
             if (selectedItem.issue) {
                 selectedIssues = [selectedItem.issue];
-                logToOutput('用户选择的议题', { issue: selectedItem.issue });
+                logToOutput('用户选择绑定议题', { 
+                    issueNumber: selectedItem.issue.number,
+                    originalTitle: allIssues.find(i => i.number === selectedItem.issue!.number)?.title,
+                    cleanedTitle: selectedItem.issue.title
+                });
             } else {
-                logToOutput('用户选择不关联议题');
+                logToOutput('用户选择不绑定议题');
             }
         } else {
             logToOutput('没有找到可用的议题');
         }
 
-        // 处理标题
-        const hasCurrentTitle = currentMessage.trim().length > 0;
-        const cleanCurrentTitle = currentMessage.replace(/^(feat|fix|docs|style|refactor|test|chore|perf)(\(.+?\))?\s*:\s*/, '').trim();
+        // 确定提交标题的逻辑
+        if (hasExistingContent) {
+            // 如果已有内容，提取并使用现有标题
+            commitTitle = currentMessage.replace(/^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+?\))?\s*:\s*/, '').trim();
 
-        logToOutput('标题处理状态', { 
-            hasCurrentTitle, 
-            cleanCurrentTitle, 
-            selectedIssuesCount: selectedIssues.length 
-        });
-
-        // 确定提交描述
-        let commitTitle = '';
-        
-        if (selectedIssues.length > 0) {
-            // 使用选择的议题标题
-            commitTitle = selectedIssues[0].title;
-            logToOutput('使用议题标题', { title: commitTitle });
-        } else if (hasCurrentTitle && cleanCurrentTitle) {
-            // 使用当前提交消息中的标题
-            commitTitle = cleanCurrentTitle;
-            logToOutput('使用当前提交消息标题', { title: commitTitle });
-        } else {
-            // 需要用户手动输入
-            const inputTitle = await vscode.window.showInputBox({
-                prompt: '输入提交描述',
-                placeHolder: '简要描述本次提交的内容',
-                value: cleanCurrentTitle // 如果有当前标题，作为默认值
-            });
-            
-            if (!inputTitle || !inputTitle.trim()) {
-                logToOutput('用户未输入提交描述');
-                return;
+            if (!commitTitle) {
+                commitTitle = currentMessage.trim();
             }
             
-            commitTitle = inputTitle.trim();
-            logToOutput('用户输入的标题', { title: commitTitle });
+            logToOutput('使用现有提交消息内容', { extractedTitle: commitTitle });
+        } else {
+            // 如果没有现有内容
+            if (selectedIssues.length > 0) {
+                // 使用选择的议题标题（已清理）
+                commitTitle = selectedIssues[0].title;
+                logToOutput('使用议题标题', { title: commitTitle });
+            } else {
+                // 没有选择议题，需要用户输入
+                const inputTitle = await vscode.window.showInputBox({
+                    prompt: '输入提交描述',
+                    placeHolder: '简要描述本次提交的内容'
+                });
+                
+                if (!inputTitle || !inputTitle.trim()) {
+                    logToOutput('用户未输入提交描述');
+                    return;
+                }
+                
+                commitTitle = inputTitle.trim();
+                logToOutput('用户手动输入的标题', { title: commitTitle });
+            }
         }
 
         // 选择提交类型
@@ -659,7 +688,10 @@ async function formatCommitMessage(): Promise<void> {
             { label: 'refactor', description: '重构（既不是新功能也不是修复bug）' },
             { label: 'test', description: '添加或修改测试' },
             { label: 'chore', description: '构建过程或辅助工具的变动' },
-            { label: 'perf', description: '性能优化' }
+            { label: 'perf', description: '性能优化' },
+            { label: 'ci', description: '持续集成相关' },
+            { label: 'build', description: '构建相关' },
+            { label: 'revert', description: '回滚提交' }
         ];
 
         const selectedType = await vscode.window.showQuickPick(commitTypes, {
@@ -688,7 +720,7 @@ async function formatCommitMessage(): Promise<void> {
         }
         commitMessage += `: ${commitTitle}`;
 
-        // 添加议题引用
+        // 添加议题引用（如果选择了议题）
         if (selectedIssues.length > 0) {
             commitMessage += `\n\nCloses #${selectedIssues[0].number}`;
         }
@@ -696,8 +728,18 @@ async function formatCommitMessage(): Promise<void> {
         // 更新Git输入框
         repository.inputBox.value = commitMessage;
 
-        logToOutput('提交消息生成完成', { commitMessage });
-        vscode.window.showInformationMessage('提交消息已生成！');
+        logToOutput('提交消息生成完成', { 
+            commitMessage,
+            hadExistingContent: hasExistingContent,
+            usedExistingTitle: hasExistingContent,
+            boundIssue: selectedIssues.length > 0 ? selectedIssues[0].number : null
+        });
+        
+        vscode.window.showInformationMessage(
+            selectedIssues.length > 0 
+                ? `提交消息已生成并绑定议题 #${selectedIssues[0].number}！`
+                : '提交消息已生成！'
+        );
 
     } catch (error: any) {
         const errorMsg = `格式化提交消息失败: ${error.message}`;
