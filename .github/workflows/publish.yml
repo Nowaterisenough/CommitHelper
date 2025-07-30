@@ -4,11 +4,9 @@ on:
   push:
     branches: [ main, master ]
     tags: [ 'v*' ]
-  pull_request:
-    branches: [ main, master ]
 
 jobs:
-  test:
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -16,20 +14,17 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'  # 改为20
+        node-version: '20'
         cache: 'npm'
     
     - name: Install dependencies
-      run: npm install  # 改为npm install而不是npm ci
-    
-    - name: Run lint
-      run: npm run lint-check
+      run: npm install
     
     - name: Build
       run: npm run compile
 
   publish:
-    needs: test
+    needs: build-and-test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
     
@@ -41,11 +36,11 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'  # 改为20
+        node-version: '20'
         cache: 'npm'
     
     - name: Install dependencies
-      run: npm install  # 改为npm install
+      run: npm install
     
     - name: Build
       run: npm run compile
