@@ -29,7 +29,6 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:CommitHelper.formatMessage",
     "onView:workbench.scm"
   ],
   "main": "./out/extension.js",
@@ -40,6 +39,26 @@
         "title": "格式化提交消息",
         "category": "Commit Helper",
         "icon": "$(tag)"
+      },
+      {
+        "command": "CommitHelper.testConfig",
+        "title": "测试配置",
+        "category": "Commit Helper"
+      },
+      {
+        "command": "CommitHelper.debugConfig",
+        "title": "调试配置",
+        "category": "Commit Helper"
+      },
+      {
+        "command": "CommitHelper.debugRepo",
+        "title": "调试仓库信息",
+        "category": "Commit Helper"
+      },
+      {
+        "command": "CommitHelper.checkWorkspaceConfig",
+        "title": "检查工作区配置",
+        "category": "Commit Helper"
       }
     ],
     "menus": {
@@ -61,6 +80,18 @@
         {
           "command": "CommitHelper.formatMessage",
           "when": "scmProvider == git"
+        },
+        {
+          "command": "CommitHelper.testConfig"
+        },
+        {
+          "command": "CommitHelper.debugConfig"
+        },
+        {
+          "command": "CommitHelper.debugRepo"
+        },
+        {
+          "command": "CommitHelper.checkWorkspaceConfig"
         }
       ]
     },
@@ -102,13 +133,31 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "package": "vsce package"
+    "pretest": "npm run compile && npm run lint",
+    "test": "node ./out/test/runTest.js",
+    "lint": "eslint src --ext ts --fix",
+    "lint-check": "eslint src --ext ts",
+    "package": "vsce package",
+    "publish": "vsce publish",
+    "publish-prerelease": "vsce publish --pre-release",
+    "version-patch": "npm version patch",
+    "version-minor": "npm version minor",
+    "version-major": "npm version major",
+    "clean": "rimraf out *.vsix",
+    "build": "npm run clean && npm run compile"
   },
   "devDependencies": {
     "@types/node": "16.x",
     "@types/node-fetch": "^2.6.12",
     "@types/vscode": "^1.74.0",
+    "@types/mocha": "^10.0.6",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/test-electron": "^2.3.8",
     "@vscode/vsce": "^3.6.0",
+    "eslint": "^8.54.0",
+    "mocha": "^10.2.0",
+    "rimraf": "^5.0.5",
     "typescript": "^4.9.4"
   },
   "dependencies": {
