@@ -2,7 +2,7 @@
   "name": "commit-helper",
   "displayName": "Commit Helper",
   "description": "帮助格式化Git提交消息为约定式提交格式，支持GitHub/GitLab/Gitee议题关联",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "NoWaterisEnough",
   "license": "MIT",
   "repository": {
@@ -27,6 +27,9 @@
   },
   "categories": [
     "Other"
+  ],
+  "activationEvents": [
+    "onCommand:CommitHelper.formatMessage"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -91,8 +94,8 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "package": "vsce package",
-    "publish": "vsce publish"
+    "package": "npx @vscode/vsce package",
+    "publish": "npx @vscode/vsce publish"
   },
   "devDependencies": {
     "@types/node": "20.x",
