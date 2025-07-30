@@ -57,6 +57,7 @@
    - `commitHelper.githubToken`
    - `commitHelper.gitlabToken`
    - `commitHelper.giteeToken`
+   - `commitHelper.localGitlabToken`
 
 #### 方法二：设置文件
 在 VSCode 设置 JSON 中添加：
