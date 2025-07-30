@@ -64,7 +64,8 @@
 {
   "commitHelper.githubToken": "your_github_personal_access_token",
   "commitHelper.gitlabToken": "your_gitlab_personal_access_token",
-  "commitHelper.giteeToken": "your_gitee_personal_access_token"
+  "commitHelper.giteeToken": "your_gitee_personal_access_token",
+  "commitHelper.localGitlabToken": "your_local_gitlab_personal_access_token"
 }
 ```
 
@@ -74,6 +75,7 @@
 export GITHUB_TOKEN="your_github_token"
 export GITLAB_TOKEN="your_gitlab_token"
 export GITEE_TOKEN="your_gitee_token"
+export LOCAL_GITLAB_TOKEN="your_local_gitlab_token"
 ```
 
 ## 访问令牌获取
