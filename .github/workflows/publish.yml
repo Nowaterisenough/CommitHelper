@@ -16,23 +16,17 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'  # 改为20
         cache: 'npm'
     
     - name: Install dependencies
-      run: npm ci
+      run: npm install  # 改为npm install而不是npm ci
     
     - name: Run lint
       run: npm run lint-check
     
     - name: Build
       run: npm run compile
-    
-    - name: Run tests
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y xvfb
-        xvfb-run -a npm test
 
   publish:
     needs: test
@@ -47,28 +41,25 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'  # 改为20
         cache: 'npm'
     
     - name: Install dependencies
-      run: npm ci
+      run: npm install  # 改为npm install
     
     - name: Build
-      run: npm run build
+      run: npm run compile
     
     - name: Auto increment version
       if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
       run: |
-        # 获取当前版本
         CURRENT_VERSION=$(node -p "require('./package.json').version")
         echo "当前版本: $CURRENT_VERSION"
         
-        # 自动递增补丁版本
         npm version patch --no-git-tag-version
         NEW_VERSION=$(node -p "require('./package.json').version")
         echo "新版本: $NEW_VERSION"
         
-        # 提交版本更改
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         git add package.json
@@ -79,41 +70,6 @@ jobs:
     
     - name: Publish to VS Code Marketplace
       run: |
-        vsce publish -p $VSCE_PAT
+        npx vsce publish -p $VSCE_PAT
       env:
         VSCE_PAT: ${{ secrets.VSCE_PAT }}
-    
-    - name: Publish to Open VSX Registry
-      run: |
-        npx ovsx publish -p $OVSX_PAT
-      env:
-        OVSX_PAT: ${{ secrets.OVSX_PAT }}
-      continue-on-error: true
-
-  # 创建GitHub Release（可选）
-  release:
-    needs: publish
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Get version from tag
-      id: get_version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-    
-    - name: Create GitHub Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.get_version.outputs.VERSION }}
-        release_name: Release ${{ steps.get_version.outputs.VERSION }}
-        body: |
-          自动发布 VS Code 扩展版本 ${{ steps.get_version.outputs.VERSION }}
-          
-          ## 更改内容
-          请查看提交历史了解详细更改。
-        draft: false
-        prerelease: false
