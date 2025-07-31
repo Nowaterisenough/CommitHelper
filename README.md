@@ -6,12 +6,24 @@
 
 **智能的 VSCode 扩展，让你的 Git 提交消息更规范、更专业**
 
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/NoWaterisEnough.commit-helper?style=for-the-badge&label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=NoWaterisEnough.commit-helper)
-[![License](https://img.shields.io/github/license/Nowaterisenough/CommitHelper?style=for-the-badge)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/Nowaterisenough/CommitHelper?style=for-the-badge)](https://github.com/Nowaterisenough/CommitHelper/stargazers)
-[![GitHub issues](https://img.shields.io/github/issues/Nowaterisenough/CommitHelper?style=for-the-badge)](https://github.com/Nowaterisenough/CommitHelper/issues)
+<p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=NoWaterisEnough.commit-helper">
+    <img src="https://img.shields.io/visual-studio-marketplace/v/NoWaterisEnough.commit-helper?style=flat-square&logo=visual-studio-code&logoColor=white&label=VS%20Code&labelColor=007ACC&color=blue" alt="VS Code Marketplace">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/github/license/Nowaterisenough/CommitHelper?style=flat-square&color=green" alt="License">
+  </a>
+  <a href="https://github.com/Nowaterisenough/CommitHelper/stargazers">
+    <img src="https://img.shields.io/github/stars/Nowaterisenough/CommitHelper?style=flat-square&logo=github&color=yellow" alt="GitHub Stars">
+  </a>
+  <a href="https://github.com/Nowaterisenough/CommitHelper/issues">
+    <img src="https://img.shields.io/github/issues/Nowaterisenough/CommitHelper?style=flat-square&logo=github&color=red" alt="GitHub Issues">
+  </a>
+</p>
 
-一键转换提交消息为约定式提交格式，支持多平台议题关联
+<p align="center">
+  <strong>一键转换提交消息为约定式提交格式，支持多平台议题关联</strong>
+</p>
 
 [立即安装](https://marketplace.visualstudio.com/items?itemName=NoWaterisEnough.commit-helper) | [使用文档](#快速开始) | [问题反馈](https://github.com/Nowaterisenough/CommitHelper/issues)
 
@@ -21,46 +33,49 @@
 
 ## 功能特性
 
-<table>
-<tr>
-<td width="50%">
-
 ### 智能提交消息格式化
-- **一键转换**：将 GitHub Copilot 或手动编写的提交消息转换为约定式提交格式
-- **格式检测**：自动识别已有的约定式提交格式，避免重复处理
-- **换行保护**：完美保持原有消息的换行格式和文本结构
+
+| 特性 | 说明 |
+|------|------|
+| **一键转换** | 将 GitHub Copilot 或手动编写的提交消息转换为约定式提交格式 |
+| **格式检测** | 自动识别已有的约定式提交格式，避免重复处理 |
+| **换行保护** | 完美保持原有消息的换行格式和文本结构 |
+| **智能清理** | 自动移除重复的提交类型前缀，防止格式错误 |
 
 ### 多平台议题集成
-- **GitHub** 集成：自动拉取 GitHub 仓库的开放议题
-- **GitLab** 集成：支持 GitLab 仓库议题获取
-- **Gitee** 集成：支持码云仓库议题管理
-- **智能选择**：提供议题搜索、过滤和手动输入选项
 
-</td>
-<td width="50%">
+| 平台 | 支持功能 |
+|------|----------|
+| **GitHub** | 自动拉取仓库开放议题，支持公开和私有仓库 |
+| **GitLab** | 支持 GitLab.com 和自建 GitLab 实例 |
+| **Gitee** | 支持码云仓库议题管理和关联 |
+| **通用功能** | 议题搜索、刷新列表、手动输入议题号 |
 
-### 约定式提交支持
-- `feat`: 新功能
-- `fix`: 修复问题
-- `docs`: 文档变更
-- `style`: 代码格式
-- `refactor`: 重构
-- `perf`: 性能优化
-- `test`: 测试相关
-- `chore`: 构建过程或辅助工具
-- `ci`: CI配置
-- `build`: 构建系统
-- `revert`: 回滚
+### 约定式提交类型
+
+| 类型 | 用途 | 示例 |
+|------|------|------|
+| `feat` | 新功能 | `feat(auth): add user login system` |
+| `fix` | 修复问题 | `fix(api): resolve timeout error` |
+| `docs` | 文档变更 | `docs: update installation guide` |
+| `style` | 代码格式 | `style: fix indentation in main.ts` |
+| `refactor` | 重构 | `refactor(utils): simplify validation logic` |
+| `perf` | 性能优化 | `perf(query): optimize database queries` |
+| `test` | 测试相关 | `test: add unit tests for user service` |
+| `chore` | 构建工具 | `chore: update dependencies` |
+| `ci` | CI配置 | `ci: add automated testing workflow` |
+| `build` | 构建系统 | `build: configure webpack for production` |
+| `revert` | 回滚 | `revert: undo changes in commit abc123` |
 
 ### 高级功能
-- **作用域支持**：可选的提交作用域（如 `auth`, `api`, `ui`）
-- **破坏性变更**：支持 BREAKING CHANGE 标记
-- **议题关联**：自动生成 `Closes #123` 格式的议题引用
-- **流畅体验**：无需多次确认，点击即开始格式化流程
 
-</td>
-</tr>
-</table>
+| 功能 | 描述 |
+|------|------|
+| **作用域支持** | 可选的提交作用域，如 `auth`、`api`、`ui` |
+| **破坏性变更** | 支持 BREAKING CHANGE 标记，使用复选框切换 |
+| **议题关联** | 自动生成 `Closes #123` 格式的议题引用 |
+| **缓存机制** | 智能缓存议题数据，提升加载速度 |
+| **错误处理** | 完善的错误提示和重试机制 |
 
 ## 快速开始
 
