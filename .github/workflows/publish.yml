@@ -204,22 +204,43 @@ jobs:
           echo -e "# 更新日志\n\n所有版本的更新内容都记录在此文件中。\n" > CHANGELOG.md
         fi
         
-        # 备份原文件
-        cp CHANGELOG.md CHANGELOG.backup.md
-        
-        # 在文件开头添加新版本的更新内容（跳过标题行）
-        {
-          # 保留文件头部（前3行：标题、空行、描述）
-          head -n 3 CHANGELOG.backup.md
-          echo ""  # 添加空行
-          # 添加新版本内容
-          echo -e "$CHANGELOG_ENTRY"
-          # 添加旧版本内容（从第4行开始）
-          tail -n +4 CHANGELOG.backup.md
-        } > CHANGELOG.md
-        
-        # 清理备份文件
-        rm -f CHANGELOG.backup.md
+        # 读取现有的 CHANGELOG 内容
+        if [ -f CHANGELOG.md ]; then
+          # 查找第一个版本标题的位置（## [x.x.x]）
+          FIRST_VERSION_LINE=$(grep -n "^## \[" CHANGELOG.md | head -n 1 | cut -d: -f1)
+          
+          if [ -n "$FIRST_VERSION_LINE" ]; then
+            # 如果找到版本标题，在它之前插入新版本
+            {
+              # 保留文件头部（版本标题之前的内容）
+              head -n $((FIRST_VERSION_LINE - 1)) CHANGELOG.md
+              # 添加新版本内容
+              echo -e "$CHANGELOG_ENTRY"
+              echo ""  # 添加空行分隔
+              # 添加剩余内容（从第一个版本开始）
+              tail -n +$FIRST_VERSION_LINE CHANGELOG.md
+            } > CHANGELOG.tmp.md
+          else
+            # 如果没有找到版本标题，在文件末尾添加
+            {
+              cat CHANGELOG.md
+              echo ""  # 添加空行
+              echo -e "$CHANGELOG_ENTRY"
+            } > CHANGELOG.tmp.md
+          fi
+          
+          # 替换原文件
+          mv CHANGELOG.tmp.md CHANGELOG.md
+        else
+          # 如果文件不存在，创建新文件
+          {
+            echo "# 更新日志"
+            echo ""
+            echo "所有版本的更新内容都记录在此文件中。"
+            echo ""
+            echo -e "$CHANGELOG_ENTRY"
+          } > CHANGELOG.md
+        fi
         
         # 提交更改
         git config --local user.email "action@github.com"

@@ -1,36 +1,43 @@
+# 更新日志
+
+## [1.0.8] - 2025-07-31
+
+### 新功能
+- feat: 优化发布工作流，改进标签获取和更新日志生成逻辑
+
 ## [1.0.7] - 2025-07-31
 
 ### 新功能
 - feat: 更新应用图标文件
 - feat: 添加应用图标文件并更新package.json中的图标路径
 
-- feat: 添加应用图标文件并更新package.json中的图标路径
-
 ### 重构
 - refactor: 优化构建和发布流程，移除不必要的构建步骤并调整版本处理逻辑
 
+## [1.0.6] - 2025-07-31
+
+### 新功能
 - feat: 更新VS Code扩展支持的命令和版本要求
 - feat: Update package configuration and add caching mechanism
+
+## [1.0.5] - 2025-07-31
 
 ### 修复
 - fix: 更新上传VSIX步骤中的actions/upload-artifact版本至v4
 
-### 重构
-- refactor: 优化构建和发布流程，移除不必要的构建步骤并调整版本处理逻辑
+## [1.0.4] - 2025-07-31
 
-- feat: 更新VS Code扩展支持的命令和版本要求
-- feat: Update package configuration and add caching mechanism
+### 新功能
 - feat: 更新VS Code扩展版本至1.0.2，并修正发布命令
 
-### 修复
-- fix: 更新上传VSIX步骤中的actions/upload-artifact版本至v4
+## [1.0.1] - 2025-07-31
 
+### 新功能
+- 支持本地GitLab议题拉取
 
-- 初始版本发布
+## [1.0.0] - 2025-07-31
+
+### 初始版本发布
 - 支持约定式提交格式化
 - 集成 GitHub/GitLab/Gitee 议题
 - 智能格式检测和换行保护
-
-## [1.0.1]
-
-- 支持本地GitLab议题拉取
