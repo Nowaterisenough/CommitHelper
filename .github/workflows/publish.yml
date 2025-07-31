@@ -61,10 +61,12 @@ jobs:
     - name: Install dependencies
       run: npm install
     
-    # 清理旧的构建文件
-    - name: Clean build artifacts
-      run: |
-        rm -rf out dist *.vsix
+    # 下载之前构建的VSIX文件
+    - name: Download VSIX artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: vsix-package
+        path: .
     
     # 获取上一个版本标签
     - name: Get previous tag
@@ -251,19 +253,16 @@ jobs:
         git push origin HEAD:${{ github.ref_name }}
         git push origin "v$NEW_VERSION"
     
-    # 打包扩展
-    - name: Package extension
-      run: |
-        npm run package
-        echo "打包的文件:"
-        ls -la *.vsix
-        # 设置VSIX文件名环境变量
-        echo "vsix_file=$(ls *.vsix | head -n 1)" >> $GITHUB_ENV
-    
-    # 验证包大小
+    # 验证下载的VSIX文件
     - name: Check package size
       run: |
-        VSIX_FILE="${{ env.vsix_file }}"
+        echo "下载的文件:"
+        ls -la *.vsix
+        
+        # 设置VSIX文件名环境变量
+        VSIX_FILE=$(ls *.vsix | head -n 1)
+        echo "vsix_file=$VSIX_FILE" >> $GITHUB_ENV
+        
         FILE_SIZE=$(du -h "$VSIX_FILE" | cut -f1)
         echo "扩展包大小: $FILE_SIZE"
         
@@ -316,6 +315,6 @@ jobs:
           ### 完整更新日志
           查看 [CHANGELOG.md](https://github.com/Nowaterisenough/CommitHelper/blob/main/CHANGELOG.md)
         files: |
-          commit-helper-v${{ steps.version.outputs.new_version || github.ref_name }}.vsix
+          *.vsix
         draft: false
         prerelease: false
