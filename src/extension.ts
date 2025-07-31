@@ -1059,18 +1059,17 @@ async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: str
     let isBreaking = false;
     
     while (true) {
-        // 动态更新每个选项的复选框状态
+        // 动态更新每个选项的复选框状态 - 单行显示
         const dynamicCommitTypes = commitTypes.map(type => ({
-            label: `${isBreaking ? '$(check)' : '$(empty)'} ${type.type}`,
-            description: `${type.description}${isBreaking ? ' (Breaking Change)' : ''}`,
+            label: `${type.type} ${type.description}`,
             type: type.type
         }));
 
-        // 添加 Breaking Change 切换选项
+        // 添加 Breaking Change 切换选项 - 双行显示
         const optionsWithToggle: vscode.QuickPickItem[] = [
             {
                 label: `${isBreaking ? '$(check)' : '$(empty)'} Breaking Change`,
-                description: `点击${isBreaking ? '取消勾选' : '勾选'} Breaking Change 选项`,
+                description: '点击设置为Breaking Change类型(破坏性变更)',
                 detail: '__toggle__'
             },
             { 
