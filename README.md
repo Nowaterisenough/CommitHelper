@@ -310,25 +310,6 @@ CommitHelper/
 - [GitLab API 文档](https://docs.gitlab.com/ee/api/)
 - [Gitee API 文档](https://gitee.com/api/v5/swagger)
 
-## 版本历史
-
-### v1.0.11 (最新版本)
-- 新增手动绑定和刷新议题按钮
-- 优化议题显示界面，支持双行显示
-- 性能优化：HTTP连接池、缓存系统、预编译正则
-- 修复多项已知问题
-
-<details>
-<summary>查看历史版本</summary>
-
-### v1.0.0
-- 初始版本发布
-- 支持约定式提交格式化
-- 集成 GitHub/GitLab/Gitee 议题
-- 智能格式检测和换行保护
-
-</details>
-
 ## 常见问题
 
 ### Q: 为什么获取不到议题？
