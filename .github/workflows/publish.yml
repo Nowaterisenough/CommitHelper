@@ -25,8 +25,25 @@ jobs:
     - name: Install dependencies
       run: npm install
     
-    - name: Build
+    # 使用开发模式构建进行测试
+    - name: Compile (development)
       run: npm run compile
+    
+    # 使用生产模式构建验证
+    - name: Build (production)
+      run: npm run build
+    
+    # 验证打包是否成功
+    - name: Package extension
+      run: npm run package
+    
+    # 上传构建产物供后续使用
+    - name: Upload VSIX
+      uses: actions/upload-artifact@v3
+      with:
+        name: vsix-package
+        path: '*.vsix'
+        retention-days: 1
 
   publish:
     needs: build-and-test
@@ -49,8 +66,113 @@ jobs:
     - name: Install dependencies
       run: npm install
     
-    - name: Build
-      run: npm run compile
+    # 清理旧的构建文件
+    - name: Clean build artifacts
+      run: |
+        rm -rf out dist *.vsix
+    
+    # 使用生产模式构建
+    - name: Build (production)
+      run: npm run build
+    
+    # 获取上一个版本标签
+    - name: Get previous tag
+      id: previoustag
+      run: |
+        # 获取所有标签，按版本号排序
+        TAGS=$(git tag -l "v*" | sort -V)
+        TAG_COUNT=$(echo "$TAGS" | wc -l)
+        
+        if [ "$TAG_COUNT" -ge 2 ]; then
+          # 获取倒数第二个标签（上一个版本）
+          PREVIOUS_TAG=$(echo "$TAGS" | tail -n 2 | head -n 1)
+        else
+          # 如果只有一个或没有标签，使用第一次提交
+          PREVIOUS_TAG=$(git rev-list --max-parents=0 HEAD)
+        fi
+        
+        echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+        echo "上一个版本: $PREVIOUS_TAG"
+    
+    # 生成更新日志
+    - name: Generate changelog
+      id: changelog
+      run: |
+        echo "生成更新日志..."
+        
+        # 获取自上个版本以来的提交信息
+        if [ -n "${{ steps.previoustag.outputs.previous_tag }}" ]; then
+          COMMITS=$(git log ${{ steps.previoustag.outputs.previous_tag }}..HEAD --pretty=format:"- %s" --no-merges | grep -v "^- chore: bump version" | grep -v "^- Merge")
+        else
+          COMMITS=$(git log --pretty=format:"- %s" --no-merges | grep -v "^- chore: bump version" | grep -v "^- Merge")
+        fi
+        
+        # 按类型分类提交
+        FEATURES=$(echo "$COMMITS" | grep -E "^- feat(\(.*\))?:" || true)
+        FIXES=$(echo "$COMMITS" | grep -E "^- fix(\(.*\))?:" || true)
+        DOCS=$(echo "$COMMITS" | grep -E "^- docs(\(.*\))?:" || true)
+        STYLES=$(echo "$COMMITS" | grep -E "^- style(\(.*\))?:" || true)
+        REFACTORS=$(echo "$COMMITS" | grep -E "^- refactor(\(.*\))?:" || true)
+        PERFS=$(echo "$COMMITS" | grep -E "^- perf(\(.*\))?:" || true)
+        TESTS=$(echo "$COMMITS" | grep -E "^- test(\(.*\))?:" || true)
+        CHORES=$(echo "$COMMITS" | grep -E "^- chore(\(.*\))?:" || true)
+        OTHERS=$(echo "$COMMITS" | grep -vE "^- (feat|fix|docs|style|refactor|perf|test|chore)(\(.*\))?:" || true)
+        
+        # 生成更新日志内容
+        CHANGELOG=""
+        
+        if [ -n "$FEATURES" ]; then
+          CHANGELOG="${CHANGELOG}### 新功能\n$FEATURES\n\n"
+        fi
+        
+        if [ -n "$FIXES" ]; then
+          CHANGELOG="${CHANGELOG}### 修复\n$FIXES\n\n"
+        fi
+        
+        if [ -n "$PERFS" ]; then
+          CHANGELOG="${CHANGELOG}### 性能优化\n$PERFS\n\n"
+        fi
+        
+        if [ -n "$REFACTORS" ]; then
+          CHANGELOG="${CHANGELOG}### 重构\n$REFACTORS\n\n"
+        fi
+        
+        if [ -n "$DOCS" ]; then
+          CHANGELOG="${CHANGELOG}### 文档\n$DOCS\n\n"
+        fi
+        
+        if [ -n "$TESTS" ]; then
+          CHANGELOG="${CHANGELOG}### 测试\n$TESTS\n\n"
+        fi
+        
+        if [ -n "$STYLES" ]; then
+          CHANGELOG="${CHANGELOG}### 样式\n$STYLES\n\n"
+        fi
+        
+        if [ -n "$CHORES" ]; then
+          CHANGELOG="${CHANGELOG}### 杂项\n$CHORES\n\n"
+        fi
+        
+        if [ -n "$OTHERS" ]; then
+          CHANGELOG="${CHANGELOG}### 其他更新\n$OTHERS\n\n"
+        fi
+        
+        # 如果没有更新内容，使用默认信息
+        if [ -z "$CHANGELOG" ]; then
+          CHANGELOG="### 维护更新\n- 例行维护和依赖更新\n"
+        fi
+        
+        # 保存到文件（为了多行内容）
+        echo -e "$CHANGELOG" > changelog_content.md
+        
+        # 输出到GitHub输出
+        {
+          echo 'changelog<<EOF'
+          cat changelog_content.md
+          echo EOF
+        } >> $GITHUB_OUTPUT
+        
+        echo "更新日志已生成"
     
     - name: Auto increment version
       if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
@@ -61,17 +183,103 @@ jobs:
         npm version patch --no-git-tag-version
         NEW_VERSION=$(node -p "require('./package.json').version")
         echo "新版本: $NEW_VERSION"
+        echo "new_version=$NEW_VERSION" >> $GITHUB_ENV
         
+        # 更新CHANGELOG.md文件
+        CHANGELOG_ENTRY="## [${NEW_VERSION}] - $(date +%Y-%m-%d)\n\n$(cat changelog_content.md)\n"
+        
+        # 检查CHANGELOG.md是否存在
+        if [ ! -f CHANGELOG.md ]; then
+          echo "# 更新日志\n\n所有版本的更新内容都记录在此文件中。\n\n" > CHANGELOG.md
+        fi
+        
+        # 在文件开头添加新版本的更新内容
+        echo -e "$CHANGELOG_ENTRY" > CHANGELOG_temp.md
+        tail -n +4 CHANGELOG.md >> CHANGELOG_temp.md 2>/dev/null || true
+        mv CHANGELOG_temp.md CHANGELOG.md
+        
+        # 提交更改
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add package.json
+        git add package.json CHANGELOG.md
         git commit -m "chore: bump version to $NEW_VERSION [skip ci]" || exit 0
         git tag "v$NEW_VERSION"
         git push origin HEAD:${{ github.ref_name }}
         git push origin "v$NEW_VERSION"
+    
+    # 打包扩展
+    - name: Package extension
+      run: |
+        npm run package
+        echo "打包的文件:"
+        ls -la *.vsix
+    
+    # 验证包大小
+    - name: Check package size
+      run: |
+        VSIX_FILE=$(ls *.vsix | head -n 1)
+        FILE_SIZE=$(du -h "$VSIX_FILE" | cut -f1)
+        echo "扩展包大小: $FILE_SIZE"
+        
+        # 获取文件大小（字节）
+        SIZE_BYTES=$(stat -c%s "$VSIX_FILE" 2>/dev/null || stat -f%z "$VSIX_FILE" 2>/dev/null)
+        SIZE_MB=$(echo "scale=2; $SIZE_BYTES / 1048576" | bc)
+        
+        echo "文件: $VSIX_FILE"
+        echo "大小: $FILE_SIZE ($SIZE_MB MB)"
+        
+        # 如果大于5MB则警告
+        if (( $(echo "$SIZE_MB > 5" | bc -l) )); then
+          echo "::warning::扩展包大小超过5MB，可能需要进一步优化"
+        fi
     
     - name: Publish to VS Code Marketplace
       run: |
         npx @vscode/vsce publish -p $VSCE_PAT
       env:
         VSCE_PAT: ${{ secrets.VSCE_PAT }}
+    
+    # 创建GitHub Release
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        body: |
+          ## 🎉 Commit Helper ${{ github.ref_name }}
+          
+          ${{ steps.changelog.outputs.changelog }}
+          
+          ---
+          
+          ### 安装方式
+          
+          **方式1：VS Code 扩展市场**
+          在VS Code扩展面板搜索 "Commit Helper" 或访问 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=NoWaterisEnough.commit-helper)
+          
+          **方式2：手动安装**
+          下载下方的 `.vsix` 文件，然后在VS Code中运行命令：
+          ```
+          code --install-extension commit-helper-${{ github.ref_name }}.vsix
+          ```
+          
+          ### 完整更新日志
+          查看 [CHANGELOG.md](https://github.com/Nowaterisenough/commit-helper/blob/main/CHANGELOG.md)
+        draft: false
+        prerelease: false
+    
+    # 上传VSIX到Release
+    - name: Upload Release Asset
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./commit-helper-${{ env.new_version }}.vsix
+        asset_name: commit-helper-${{ github.ref_name }}.vsix
+        asset_content_type: application/vsix
