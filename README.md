@@ -1,8 +1,29 @@
+<div align="center">
+
 # CommitHelper
 
-一个智能的 VSCode 扩展，帮助你将现有的提交消息格式化为符合约定式提交（Conventional Commits）标准的格式，并支持自动拉取仓库议题进行关联。
+<img src="https://raw.githubusercontent.com/Nowaterisenough/CommitHelper/main/icon.png" alt="CommitHelper Logo" width="128">
+
+**智能的 VSCode 扩展，让你的 Git 提交消息更规范、更专业**
+
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/NoWaterisEnough.commit-helper?style=for-the-badge&label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=NoWaterisEnough.commit-helper)
+[![License](https://img.shields.io/github/license/Nowaterisenough/CommitHelper?style=for-the-badge)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/Nowaterisenough/CommitHelper?style=for-the-badge)](https://github.com/Nowaterisenough/CommitHelper/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/Nowaterisenough/CommitHelper?style=for-the-badge)](https://github.com/Nowaterisenough/CommitHelper/issues)
+
+一键转换提交消息为约定式提交格式，支持多平台议题关联
+
+[立即安装](https://marketplace.visualstudio.com/items?itemName=NoWaterisEnough.commit-helper) | [使用文档](#快速开始) | [问题反馈](https://github.com/Nowaterisenough/CommitHelper/issues)
+
+</div>
+
+---
 
 ## 功能特性
+
+<table>
+<tr>
+<td width="50%">
 
 ### 智能提交消息格式化
 - **一键转换**：将 GitHub Copilot 或手动编写的提交消息转换为约定式提交格式
@@ -15,8 +36,10 @@
 - **Gitee** 集成：支持码云仓库议题管理
 - **智能选择**：提供议题搜索、过滤和手动输入选项
 
+</td>
+<td width="50%">
+
 ### 约定式提交支持
-支持所有标准的约定式提交类型：
 - `feat`: 新功能
 - `fix`: 修复问题
 - `docs`: 文档变更
@@ -35,31 +58,50 @@
 - **议题关联**：自动生成 `Closes #123` 格式的议题引用
 - **流畅体验**：无需多次确认，点击即开始格式化流程
 
+</td>
+</tr>
+</table>
+
 ## 快速开始
 
 ### 安装
-1. 在 VSCode 扩展商店搜索 "CommitHelper"
-2. 点击安装
+1. 在 VSCode 扩展商店搜索 **"CommitHelper"**
+2. 点击 **安装** 按钮
+
+> **提示**: 也可以通过 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=NoWaterisEnough.commit-helper) 直接安装
 
 ### 基本使用
+
+<details>
+<summary>查看使用步骤</summary>
+
 1. 在 Git 源代码管理面板中编写或使用 Copilot 生成提交消息
-2. 点击源代码管理标题栏的 "Format as Conventional Commit" 按钮（标签图标）
+2. 点击源代码管理标题栏的 **"Format as Conventional Commit"** 按钮（标签图标）
 3. 按照引导选择提交类型、作用域等信息
 4. 插件会自动格式化并更新你的提交消息
 
-### 配置访问令牌（可选）
-为了获取私有仓库的议题，你需要配置相应平台的访问令牌：
+</details>
 
-#### 方法一：VSCode 设置
-1. 打开 VSCode 设置（`Ctrl+,`）
-2. 搜索 "commitHelper"
+### 配置访问令牌（可选）
+
+> **隐私说明**: 为了获取私有仓库的议题，你需要配置相应平台的访问令牌
+
+<details>
+<summary>方法一：VSCode 设置</summary>
+
+1. 打开 VSCode 设置（`Ctrl+,` 或 `Cmd+,`）
+2. 搜索 **"commitHelper"**
 3. 配置相应的令牌：
    - `commitHelper.githubToken`
    - `commitHelper.gitlabToken`
    - `commitHelper.giteeToken`
    - `commitHelper.localGitlabToken`
 
-#### 方法二：设置文件
+</details>
+
+<details>
+<summary>方法二：设置文件</summary>
+
 在 VSCode 设置 JSON 中添加：
 ```json
 {
@@ -70,7 +112,11 @@
 }
 ```
 
-#### 方法三：环境变量
+</details>
+
+<details>
+<summary>方法三：环境变量</summary>
+
 设置环境变量：
 ```bash
 export GITHUB_TOKEN="your_github_token"
@@ -79,29 +125,51 @@ export GITEE_TOKEN="your_gitee_token"
 export LOCAL_GITLAB_TOKEN="your_local_gitlab_token"
 ```
 
+</details>
+
 ## 访问令牌获取
 
-### GitHub Personal Access Token
-1. 访问 [GitHub Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens)
-2. 点击 "Generate new token (classic)"
+<table>
+<tr>
+<td width="33%">
+
+### GitHub
+1. 访问 [Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens)
+2. 点击 **"Generate new token (classic)"**
 3. 选择权限：`repo` (完整仓库权限)
 4. 复制生成的令牌
 
-### GitLab Personal Access Token
-1. 访问 [GitLab Settings > Access Tokens](https://gitlab.com/-/profile/personal_access_tokens)
+</td>
+<td width="33%">
+
+### GitLab
+1. 访问 [Settings > Access Tokens](https://gitlab.com/-/profile/personal_access_tokens)
 2. 创建新令牌
 3. 选择权限：`read_api`, `read_repository`
 4. 复制生成的令牌
 
-### Gitee Personal Access Token
-1. 访问 [Gitee Settings > 私人令牌](https://gitee.com/profile/personal_access_tokens)
+</td>
+<td width="33%">
+
+### Gitee
+1. 访问 [Settings > 私人令牌](https://gitee.com/profile/personal_access_tokens)
 2. 创建新令牌
 3. 选择权限：`issues`, `pull_requests`
 4. 复制生成的令牌
 
+</td>
+</tr>
+</table>
+
 ## 使用示例
 
-### 转换前
+### 转换效果展示
+
+<table>
+<tr>
+<td width="50%">
+
+**转换前**
 ```
 Add user authentication system
 
@@ -110,7 +178,10 @@ Add user authentication system
 - Created user session management
 ```
 
-### 转换后
+</td>
+<td width="50%">
+
+**转换后**
 ```
 feat(auth): add user authentication system
 
@@ -121,15 +192,24 @@ feat(auth): add user authentication system
 Closes #42
 ```
 
+</td>
+</tr>
+</table>
+
 ## 界面展示
 
 ### 格式化流程
+<details>
+<summary>点击查看详细流程</summary>
+
 1. **类型选择**：从下拉列表选择最适合的提交类型
 2. **作用域输入**：可选的功能模块作用域
 3. **破坏性变更**：标记是否为破坏性变更
 4. **议题选择**：从开放议题列表中选择或手动输入
 5. **内容确认**：确认标题和详细描述
 6. **自动应用**：格式化后的消息自动填入提交框
+
+</details>
 
 ### 议题选择界面
 ```
@@ -156,7 +236,7 @@ Closes #42
 ### 本地开发
 ```bash
 # 克隆仓库
-git clone <repository-url>
+git clone https://github.com/Nowaterisenough/CommitHelper.git
 cd CommitHelper
 
 # 安装依赖
@@ -175,26 +255,38 @@ npm run package
 ```
 CommitHelper/
 ├── src/
-│   └── extension.ts      # 主要扩展逻辑
+│   ├── extension.ts      # 主要扩展逻辑
+│   └── cache.ts          # 缓存系统
 ├── package.json          # 扩展配置和依赖
 ├── tsconfig.json         # TypeScript 配置
+├── esbuild.js            # 构建配置
 └── README.md             # 项目文档
 ```
 
 ## 贡献
 
-欢迎提交 Issue 和 Pull Request！
+欢迎提交 Issue 和 Pull Request！我们鼓励所有形式的贡献。
 
 ### 贡献指南
-1. Fork 项目
+1. **Fork** 项目
 2. 创建功能分支 (`git checkout -b feat/amazing-feature`)
 3. 提交更改 (`git commit -m 'feat: add amazing feature'`)
 4. 推送分支 (`git push origin feat/amazing-feature`)
-5. 创建 Pull Request
+5. 创建 **Pull Request**
+
+<div align="center">
+
+### 如果这个项目对你有帮助，请给个 Star！
+
+[![GitHub stars](https://img.shields.io/github/stars/Nowaterisenough/CommitHelper?style=social)](https://github.com/Nowaterisenough/CommitHelper/stargazers)
+
+</div>
+
+---
 
 ## 许可证
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
+本项目采用 **MIT License** - 详见 [LICENSE](LICENSE) 文件
 
 ## 相关链接
 
@@ -205,11 +297,22 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ## 版本历史
 
+### v1.0.11 (最新版本)
+- 新增手动绑定和刷新议题按钮
+- 优化议题显示界面，支持双行显示
+- 性能优化：HTTP连接池、缓存系统、预编译正则
+- 修复多项已知问题
+
+<details>
+<summary>查看历史版本</summary>
+
 ### v1.0.0
 - 初始版本发布
 - 支持约定式提交格式化
 - 集成 GitHub/GitLab/Gitee 议题
 - 智能格式检测和换行保护
+
+</details>
 
 ## 常见问题
 
