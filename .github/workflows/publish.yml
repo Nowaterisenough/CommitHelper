@@ -25,13 +25,9 @@ jobs:
     - name: Install dependencies
       run: npm install
     
-    # 使用开发模式构建进行测试
-    - name: Compile (development)
+    # 编译项目
+    - name: Compile
       run: npm run compile
-    
-    # 使用生产模式构建验证
-    - name: Build (production)
-      run: npm run build
     
     # 验证打包是否成功
     - name: Package extension
@@ -70,10 +66,6 @@ jobs:
     - name: Clean build artifacts
       run: |
         rm -rf out dist *.vsix
-    
-    # 使用生产模式构建
-    - name: Build (production)
-      run: npm run build
     
     # 获取上一个版本标签
     - name: Get previous tag
@@ -176,6 +168,7 @@ jobs:
     
     - name: Auto increment version
       if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+      id: version
       run: |
         CURRENT_VERSION=$(node -p "require('./package.json').version")
         echo "当前版本: $CURRENT_VERSION"
@@ -184,6 +177,7 @@ jobs:
         NEW_VERSION=$(node -p "require('./package.json').version")
         echo "新版本: $NEW_VERSION"
         echo "new_version=$NEW_VERSION" >> $GITHUB_ENV
+        echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
         
         # 更新CHANGELOG.md文件
         CHANGELOG_ENTRY="## [${NEW_VERSION}] - $(date +%Y-%m-%d)\n\n$(cat changelog_content.md)\n"
@@ -213,11 +207,13 @@ jobs:
         npm run package
         echo "打包的文件:"
         ls -la *.vsix
+        # 设置VSIX文件名环境变量
+        echo "vsix_file=$(ls *.vsix | head -n 1)" >> $GITHUB_ENV
     
     # 验证包大小
     - name: Check package size
       run: |
-        VSIX_FILE=$(ls *.vsix | head -n 1)
+        VSIX_FILE="${{ env.vsix_file }}"
         FILE_SIZE=$(du -h "$VSIX_FILE" | cut -f1)
         echo "扩展包大小: $FILE_SIZE"
         
@@ -239,18 +235,19 @@ jobs:
       env:
         VSCE_PAT: ${{ secrets.VSCE_PAT }}
     
-    # 创建GitHub Release
+    # 创建GitHub Release - 修改条件
     - name: Create Release
-      if: startsWith(github.ref, 'refs/tags/v')
+      # 当自动创建了新版本时，或者由tag触发时
+      if: steps.version.outputs.new_version || startsWith(github.ref, 'refs/tags/v')
       id: create_release
       uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
+        tag_name: v${{ steps.version.outputs.new_version || github.ref_name }}
+        release_name: Release v${{ steps.version.outputs.new_version || github.ref_name }}
         body: |
-          ## 🎉 Commit Helper ${{ github.ref_name }}
+          ## Commit Helper v${{ steps.version.outputs.new_version || github.ref_name }}
           
           ${{ steps.changelog.outputs.changelog }}
           
@@ -264,7 +261,7 @@ jobs:
           **方式2：手动安装**
           下载下方的 `.vsix` 文件，然后在VS Code中运行命令：
           ```
-          code --install-extension commit-helper-${{ github.ref_name }}.vsix
+          code --install-extension commit-helper-v${{ steps.version.outputs.new_version || github.ref_name }}.vsix
           ```
           
           ### 完整更新日志
@@ -274,12 +271,13 @@ jobs:
     
     # 上传VSIX到Release
     - name: Upload Release Asset
-      if: startsWith(github.ref, 'refs/tags/v')
+      # 当成功创建release时
+      if: steps.create_release.outputs.upload_url
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./commit-helper-${{ env.new_version }}.vsix
-        asset_name: commit-helper-${{ github.ref_name }}.vsix
+        asset_path: ./${{ env.vsix_file }}
+        asset_name: commit-helper-v${{ steps.version.outputs.new_version || github.ref_name }}.vsix
         asset_content_type: application/vsix
