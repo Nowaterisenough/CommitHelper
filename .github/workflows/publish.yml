@@ -50,7 +50,6 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
-        # 使用GitHub Token进行认证
         token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Setup Node.js
@@ -71,16 +70,27 @@ jobs:
     - name: Get previous tag
       id: previoustag
       run: |
-        # 获取所有标签，按版本号排序
-        TAGS=$(git tag -l "v*" | sort -V)
-        TAG_COUNT=$(echo "$TAGS" | wc -l)
+        # 获取当前提交的标签（如果有）
+        CURRENT_TAG=$(git tag --points-at HEAD | grep "^v" | head -n 1)
+        echo "当前标签: $CURRENT_TAG"
         
-        if [ "$TAG_COUNT" -ge 2 ]; then
-          # 获取倒数第二个标签（上一个版本）
-          PREVIOUS_TAG=$(echo "$TAGS" | tail -n 2 | head -n 1)
+        # 获取所有标签，按版本号排序（从新到旧）
+        ALL_TAGS=$(git tag -l "v*" | sort -V -r)
+        echo "所有标签:"
+        echo "$ALL_TAGS"
+        
+        # 如果当前提交有标签，从列表中排除它
+        if [ -n "$CURRENT_TAG" ]; then
+          PREVIOUS_TAG=$(echo "$ALL_TAGS" | grep -v "^$CURRENT_TAG$" | head -n 1)
         else
-          # 如果只有一个或没有标签，使用第一次提交
+          # 如果当前提交没有标签，获取最新的标签
+          PREVIOUS_TAG=$(echo "$ALL_TAGS" | head -n 1)
+        fi
+        
+        # 如果没有找到之前的标签，使用第一次提交
+        if [ -z "$PREVIOUS_TAG" ]; then
           PREVIOUS_TAG=$(git rev-list --max-parents=0 HEAD)
+          echo "没有找到之前的标签，使用第一次提交"
         fi
         
         echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
@@ -94,21 +104,28 @@ jobs:
         
         # 获取自上个版本以来的提交信息
         if [ -n "${{ steps.previoustag.outputs.previous_tag }}" ]; then
-          COMMITS=$(git log ${{ steps.previoustag.outputs.previous_tag }}..HEAD --pretty=format:"- %s" --no-merges | grep -v "^- chore: bump version" | grep -v "^- Merge")
+          # 使用 --first-parent 避免包含合并的分支历史
+          RAW_COMMITS=$(git log ${{ steps.previoustag.outputs.previous_tag }}..HEAD --pretty=format:"%s" --first-parent --no-merges)
         else
-          COMMITS=$(git log --pretty=format:"- %s" --no-merges | grep -v "^- chore: bump version" | grep -v "^- Merge")
+          RAW_COMMITS=$(git log --pretty=format:"%s" --first-parent --no-merges)
         fi
         
-        # 按类型分类提交
-        FEATURES=$(echo "$COMMITS" | grep -E "^- feat(\(.*\))?:" || true)
-        FIXES=$(echo "$COMMITS" | grep -E "^- fix(\(.*\))?:" || true)
-        DOCS=$(echo "$COMMITS" | grep -E "^- docs(\(.*\))?:" || true)
-        STYLES=$(echo "$COMMITS" | grep -E "^- style(\(.*\))?:" || true)
-        REFACTORS=$(echo "$COMMITS" | grep -E "^- refactor(\(.*\))?:" || true)
-        PERFS=$(echo "$COMMITS" | grep -E "^- perf(\(.*\))?:" || true)
-        TESTS=$(echo "$COMMITS" | grep -E "^- test(\(.*\))?:" || true)
-        CHORES=$(echo "$COMMITS" | grep -E "^- chore(\(.*\))?:" || true)
-        OTHERS=$(echo "$COMMITS" | grep -vE "^- (feat|fix|docs|style|refactor|perf|test|chore)(\(.*\))?:" || true)
+        # 去重并过滤
+        COMMITS=$(echo "$RAW_COMMITS" | sort -u | grep -v "^chore: bump version" | grep -v "^Merge" | sed 's/^/- /')
+        
+        echo "提交记录:"
+        echo "$COMMITS"
+        
+        # 按类型分类提交（使用更精确的正则表达式）
+        FEATURES=$(echo "$COMMITS" | grep -E "^- feat(\([^)]*\))?:" || true)
+        FIXES=$(echo "$COMMITS" | grep -E "^- fix(\([^)]*\))?:" || true)
+        DOCS=$(echo "$COMMITS" | grep -E "^- docs(\([^)]*\))?:" || true)
+        STYLES=$(echo "$COMMITS" | grep -E "^- style(\([^)]*\))?:" || true)
+        REFACTORS=$(echo "$COMMITS" | grep -E "^- refactor(\([^)]*\))?:" || true)
+        PERFS=$(echo "$COMMITS" | grep -E "^- perf(\([^)]*\))?:" || true)
+        TESTS=$(echo "$COMMITS" | grep -E "^- test(\([^)]*\))?:" || true)
+        CHORES=$(echo "$COMMITS" | grep -E "^- chore(\([^)]*\))?:" || true)
+        OTHERS=$(echo "$COMMITS" | grep -vE "^- (feat|fix|docs|style|refactor|perf|test|chore)(\([^)]*\))?:" || true)
         
         # 生成更新日志内容
         CHANGELOG=""
@@ -180,17 +197,29 @@ jobs:
         echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
         
         # 更新CHANGELOG.md文件
-        CHANGELOG_ENTRY="## [${NEW_VERSION}] - $(date +%Y-%m-%d)\n\n$(cat changelog_content.md)\n"
+        CHANGELOG_ENTRY="## [${NEW_VERSION}] - $(date +%Y-%m-%d)\n\n$(cat changelog_content.md)"
         
         # 检查CHANGELOG.md是否存在
         if [ ! -f CHANGELOG.md ]; then
-          echo "# 更新日志\n\n所有版本的更新内容都记录在此文件中。\n\n" > CHANGELOG.md
+          echo -e "# 更新日志\n\n所有版本的更新内容都记录在此文件中。\n" > CHANGELOG.md
         fi
         
-        # 在文件开头添加新版本的更新内容
-        echo -e "$CHANGELOG_ENTRY" > CHANGELOG_temp.md
-        tail -n +4 CHANGELOG.md >> CHANGELOG_temp.md 2>/dev/null || true
-        mv CHANGELOG_temp.md CHANGELOG.md
+        # 备份原文件
+        cp CHANGELOG.md CHANGELOG.backup.md
+        
+        # 在文件开头添加新版本的更新内容（跳过标题行）
+        {
+          # 保留文件头部（前3行：标题、空行、描述）
+          head -n 3 CHANGELOG.backup.md
+          echo ""  # 添加空行
+          # 添加新版本内容
+          echo -e "$CHANGELOG_ENTRY"
+          # 添加旧版本内容（从第4行开始）
+          tail -n +4 CHANGELOG.backup.md
+        } > CHANGELOG.md
+        
+        # 清理备份文件
+        rm -f CHANGELOG.backup.md
         
         # 提交更改
         git config --local user.email "action@github.com"
