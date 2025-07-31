@@ -7,16 +7,33 @@ import { Cache } from './cache';
 // 输出频道
 let outputChannel: vscode.OutputChannel;
 
-// 缓存实例
-const issueCache = new Cache<Issue[]>(5); // 5分钟缓存
-const repoInfoCache = new Cache<RepoInfo>(10); // 10分钟缓存
+// 缓存实例 - 增加缓存时间和大小限制
+const issueCache = new Cache<Issue[]>(10, 50); // 10分钟缓存，最多50个项目
+const repoInfoCache = new Cache<RepoInfo>(30, 10); // 30分钟缓存，最多10个项目
+const tokenCache = new Cache<string>(60); // 60分钟Token缓存
 let gitApi: any; // 缓存Git API实例
+
+// HTTP连接池配置
+const httpAgents = {
+    http: new http.Agent({
+        keepAlive: true,
+        maxSockets: 5,
+        maxFreeSockets: 2,
+        timeout: 10000
+    }),
+    https: new https.Agent({
+        keepAlive: true,
+        maxSockets: 5,
+        maxFreeSockets: 2,
+        timeout: 10000
+    })
+};
 
 // 配置
 const config = {
     debug: false, // 调试模式开关
-    maxIssues: 100, // 最大议题数量
-    requestTimeout: 10000, // 请求超时时间
+    maxIssues: 50, // 减少最大议题数量以提高性能
+    requestTimeout: 8000, // 减少超时时间
 };
 
 // 定义接口
@@ -36,22 +53,31 @@ interface RepoInfo {
     hostUrl?: string;
 }
 
-// 优化的日志函数
+// 优化的日志函数 - 减少字符串操作和内存分配
 function logToOutput(message: string, data?: any): void {
     if (!config.debug && !message.includes('错误')) return; // 非调试模式只输出错误
 
     const timestamp = new Date().toISOString();
-    let logMessage = `[${timestamp}] ${message}`;
-
+    
     if (data !== undefined) {
-        logMessage += `\n${JSON.stringify(data, null, 2)}`;
+        // 延迟JSON序列化，只在需要时执行
+        outputChannel.appendLine(`[${timestamp}] ${message}`);
+        try {
+            outputChannel.appendLine(JSON.stringify(data, null, 2));
+        } catch (error) {
+            outputChannel.appendLine(`[JSON序列化失败]: ${String(data)}`);
+        }
+    } else {
+        outputChannel.appendLine(`[${timestamp}] ${message}`);
     }
-
-    outputChannel.appendLine(logMessage);
-    console.log(logMessage);
+    
+    // 减少console.log调用
+    if (config.debug) {
+        console.log(`[${timestamp}] ${message}`, data);
+    }
 }
 
-// 创建 HTTP 请求函数
+// 优化的 HTTP 请求函数 - 使用连接池
 function makeHttpRequest(url: string, options: any = {}): Promise<any> {
     return new Promise((resolve, reject) => {
         const urlObj = new URL(url);
@@ -63,41 +89,60 @@ function makeHttpRequest(url: string, options: any = {}): Promise<any> {
             port: urlObj.port || (isHttps ? 443 : 80),
             path: urlObj.pathname + urlObj.search,
             method: options.method || 'GET',
-            headers: options.headers || {},
-            timeout: options.timeout || 10000
+            headers: {
+                'Connection': 'keep-alive',
+                ...options.headers
+            },
+            timeout: options.timeout || config.requestTimeout,
+            agent: isHttps ? httpAgents.https : httpAgents.http
         };
 
         logToOutput(`发起HTTP请求`, {
             url: url.replace(/token=[^&]+/, 'token=***').replace(/Bearer [^,}]+/, 'Bearer ***'),
             method: requestOptions.method,
             hostname: requestOptions.hostname,
-            port: requestOptions.port
+            keepAlive: true
         });
 
         const req = client.request(requestOptions, (res) => {
-            let data = '';
+            const chunks: Buffer[] = [];
+            let totalLength = 0;
 
-            res.on('data', (chunk) => {
-                data += chunk;
+            res.on('data', (chunk: Buffer) => {
+                chunks.push(chunk);
+                totalLength += chunk.length;
+                
+                // 防止响应过大
+                if (totalLength > 10 * 1024 * 1024) { // 10MB限制
+                    req.destroy();
+                    reject(new Error('响应数据过大'));
+                    return;
+                }
             });
 
             res.on('end', () => {
                 logToOutput(`HTTP响应`, {
                     statusCode: res.statusCode,
-                    statusMessage: res.statusMessage,
-                    headers: res.headers
+                    contentLength: totalLength,
+                    headers: {
+                        'content-type': res.headers['content-type'],
+                        'x-ratelimit-remaining': res.headers['x-ratelimit-remaining']
+                    }
                 });
 
                 if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
-                    reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}\n${data}`));
+                    const data = Buffer.concat(chunks, totalLength).toString('utf8');
+                    reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}\n${data.substring(0, 500)}`));
                     return;
                 }
 
                 try {
+                    const data = Buffer.concat(chunks, totalLength).toString('utf8');
                     const result = JSON.parse(data);
                     resolve(result);
                 } catch (error) {
-                    logToOutput(`JSON解析失败`, { data: data.substring(0, 200) });
+                    const data = Buffer.concat(chunks, totalLength).toString('utf8');
+                    logToOutput(`JSON解析失败`, { dataLength: data.length });
                     reject(new Error(`JSON解析失败: ${error}`));
                 }
             });
@@ -129,26 +174,35 @@ async function makeHttpRequestWithRetry(url: string, options: any = {}, retries 
     }
 }
 
-// 获取访问令牌
+// 优化的获取访问令牌函数 - 添加缓存
 async function getAccessToken(platform: string, hostUrl?: string): Promise<string | undefined> {
+    const cacheKey = `token-${platform}-${hostUrl || 'default'}`;
+    
+    // 先检查缓存
+    const cachedToken = tokenCache.get(cacheKey);
+    if (cachedToken) {
+        logToOutput(`使用缓存Token`, { platform, hasToken: true });
+        return cachedToken;
+    }
+
     const config = vscode.workspace.getConfiguration('commitHelper');
 
     logToOutput(`获取访问令牌`, { platform, hostUrl });
 
+    let token: string | undefined;
+
     switch (platform) {
         case 'github':
-            const githubToken = config.get<string>('githubToken') || process.env.GITHUB_TOKEN;
-            logToOutput(`GitHub Token: ${githubToken ? '已配置' : '未配置'}`);
-            return githubToken;
+            token = config.get<string>('githubToken') || process.env.GITHUB_TOKEN;
+            break;
 
         case 'gitlab':
-            const gitlabToken = config.get<string>('gitlabToken') || process.env.GITLAB_TOKEN;
-            logToOutput(`GitLab Token: ${gitlabToken ? '已配置' : '未配置'}`);
-            return gitlabToken;
+            token = config.get<string>('gitlabToken') || process.env.GITLAB_TOKEN;
+            break;
 
         case 'local-gitlab':
             // 对于本地GitLab实例，尝试多种配置方式
-            let token = config.get<string>('localGitlabToken') || process.env.LOCAL_GITLAB_TOKEN;
+            token = config.get<string>('localGitlabToken') || process.env.LOCAL_GITLAB_TOKEN;
 
             // 如果没有专门的本地GitLab token，尝试使用通用的GitLab token
             if (!token) {
@@ -159,8 +213,6 @@ async function getAccessToken(platform: string, hostUrl?: string): Promise<strin
             if (!token && hostUrl) {
                 try {
                     const hostname = new URL(hostUrl).hostname;
-
-                    // 尝试多种配置键格式
                     const configKeys = [
                         `gitlabToken.${hostname}`,
                         `localGitlabToken.${hostname}`,
@@ -168,259 +220,203 @@ async function getAccessToken(platform: string, hostUrl?: string): Promise<strin
                         `tokens.${hostname}`
                     ];
 
-                    logToOutput(`尝试查找主机特定配置`, { hostname, configKeys });
-
                     for (const key of configKeys) {
                         const fullConfig = vscode.workspace.getConfiguration();
-                        const fullKey = `commitHelper.${key}`;
-                        token = fullConfig.get<string>(fullKey);
-
-                        logToOutput(`检查配置键: ${fullKey}`, { found: !!token });
-
-                        if (token) {
-                            logToOutput(`使用配置键获取到Token: ${fullKey}`);
-                            break;
-                        }
+                        token = fullConfig.get<string>(`commitHelper.${key}`);
+                        if (token) break;
                     }
                 } catch (error) {
                     logToOutput(`解析hostUrl失败: ${error}`);
                 }
             }
-
-            logToOutput(`本地GitLab Token: ${token ? '已配置' : '未配置'}`, {
-                hasLocalToken: !!(config.get<string>('localGitlabToken') || process.env.LOCAL_GITLAB_TOKEN),
-                hasGitlabToken: !!(config.get<string>('gitlabToken') || process.env.GITLAB_TOKEN),
-                hostUrl: hostUrl,
-                tokenPrefix: token ? token.substring(0, 8) + '...' : 'none'
-            });
-
-            return token;
+            break;
 
         case 'gitee':
-            const giteeToken = config.get<string>('giteeToken') || process.env.GITEE_TOKEN;
-            logToOutput(`Gitee Token: ${giteeToken ? '已配置' : '未配置'}`);
-            return giteeToken;
+            token = config.get<string>('giteeToken') || process.env.GITEE_TOKEN;
+            break;
 
         default:
             return undefined;
     }
+
+    logToOutput(`${platform} Token: ${token ? '已配置' : '未配置'}`);
+
+    // 缓存有效的token
+    if (token) {
+        tokenCache.set(cacheKey, token);
+    }
+
+    return token;
 }
 
-// 解析Git URL
+// 预编译正则表达式以提高性能
+const GIT_URL_PATTERNS = {
+    https: /^(https?:\/\/([^\/]+))\/([^\/]+)\/(.+?)(?:\.git)?$/,
+    sshWithPort: /^ssh:\/\/git@([^:\/]+):(\d+)\/([^\/]+)\/(.+?)(?:\.git)?$/,
+    sshStandard: /^git@([^:]+):([^\/]+)\/(.+?)(?:\.git)?$/,
+    sshNoPort: /^ssh:\/\/git@([^\/]+)\/([^\/]+)\/(.+?)(?:\.git)?$/
+};
+
+// 优化的解析Git URL函数
 function parseGitUrl(url: string): RepoInfo | null {
     logToOutput('解析Git URL', { url });
 
-    // 1. 匹配HTTPS格式：https://host/owner/repo.git
-    let match = url.match(/^(https?:\/\/([^\/]+))\/([^\/]+)\/(.+?)(?:\.git)?$/);
+    // 1. 匹配HTTPS格式
+    let match = url.match(GIT_URL_PATTERNS.https);
     if (match) {
-        const fullHostUrl = match[1];
-        const hostname = match[2];
-        const owner = match[3];
-        const repo = match[4];
-
-        logToOutput('HTTPS格式匹配成功', { fullHostUrl, hostname, owner, repo });
-
-        // 判断平台类型
-        if (hostname.includes('github.com')) {
-            return {
-                platform: 'github',
-                owner,
-                repo,
-                baseUrl: 'https://api.github.com',
-                hostUrl: fullHostUrl
-            };
-        } else if (hostname.includes('gitlab.com')) {
-            return {
-                platform: 'gitlab',
-                owner,
-                repo,
-                baseUrl: 'https://gitlab.com/api/v4',
-                hostUrl: fullHostUrl
-            };
-        } else if (hostname.includes('gitee.com')) {
-            return {
-                platform: 'gitee',
-                owner,
-                repo,
-                baseUrl: 'https://gitee.com/api/v5',
-                hostUrl: fullHostUrl
-            };
-        } else {
-            // 假设其他都是本地GitLab
-            return {
-                platform: 'local-gitlab',
-                owner,
-                repo,
-                baseUrl: `${fullHostUrl}/api/v4`,
-                hostUrl: fullHostUrl
-            };
-        }
+        return parseHttpsMatch(match);
     }
 
-    // 2. 匹配SSH格式（带端口）：ssh://git@host:port/owner/repo.git
-    match = url.match(/^ssh:\/\/git@([^:\/]+):(\d+)\/([^\/]+)\/(.+?)(?:\.git)?$/);
+    // 2. 匹配SSH格式（带端口）
+    match = url.match(GIT_URL_PATTERNS.sshWithPort);
     if (match) {
-        const hostname = match[1];
-        const port = match[2];
-        const owner = match[3];
-        const repo = match[4];
-
-        logToOutput('SSH格式（带端口）匹配成功', { hostname, port, owner, repo });
-
-        if (hostname.includes('github.com')) {
-            return {
-                platform: 'github',
-                owner,
-                repo,
-                baseUrl: 'https://api.github.com',
-                hostUrl: `https://${hostname}`
-            };
-        } else if (hostname.includes('gitlab.com')) {
-            return {
-                platform: 'gitlab',
-                owner,
-                repo,
-                baseUrl: 'https://gitlab.com/api/v4',
-                hostUrl: `https://${hostname}`
-            };
-        } else if (hostname.includes('gitee.com')) {
-            return {
-                platform: 'gitee',
-                owner,
-                repo,
-                baseUrl: 'https://gitee.com/api/v5',
-                hostUrl: `https://${hostname}`
-            };
-        } else {
-            // 本地GitLab，判断使用HTTP还是HTTPS
-            const isInternalIP = hostname.match(/^192\.168\./) || hostname.match(/^10\./) || hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) || hostname === 'localhost';
-            const protocol = isInternalIP ? 'http' : 'https';
-
-            // 如果是2222端口，很可能Web界面在80/443端口
-            const webPort = port === '2222' ? '' : `:${port}`;
-            const hostUrl = `${protocol}://${hostname}${webPort}`;
-
-            logToOutput('本地GitLab配置', { protocol, webPort, hostUrl });
-
-            return {
-                platform: 'local-gitlab',
-                owner,
-                repo,
-                baseUrl: `${hostUrl}/api/v4`,
-                hostUrl: hostUrl
-            };
-        }
+        return parseSshWithPortMatch(match);
     }
 
-    // 3. 匹配标准SSH格式：git@host:owner/repo.git
-    match = url.match(/^git@([^:]+):([^\/]+)\/(.+?)(?:\.git)?$/);
+    // 3. 匹配标准SSH格式
+    match = url.match(GIT_URL_PATTERNS.sshStandard);
     if (match) {
-        const hostname = match[1];
-        const owner = match[2];
-        const repo = match[3];
-
-        logToOutput('SSH格式（标准）匹配成功', { hostname, owner, repo });
-
-        if (hostname.includes('github.com')) {
-            return {
-                platform: 'github',
-                owner,
-                repo,
-                baseUrl: 'https://api.github.com',
-                hostUrl: `https://${hostname}`
-            };
-        } else if (hostname.includes('gitlab.com')) {
-            return {
-                platform: 'gitlab',
-                owner,
-                repo,
-                baseUrl: 'https://gitlab.com/api/v4',
-                hostUrl: `https://${hostname}`
-            };
-        } else if (hostname.includes('gitee.com')) {
-            return {
-                platform: 'gitee',
-                owner,
-                repo,
-                baseUrl: 'https://gitee.com/api/v5',
-                hostUrl: `https://${hostname}`
-            };
-        } else {
-            // 本地GitLab
-            const isInternalIP = hostname.match(/^192\.168\./) || hostname.match(/^10\./) || hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) || hostname === 'localhost';
-            const protocol = isInternalIP ? 'http' : 'https';
-            const hostUrl = `${protocol}://${hostname}`;
-
-            return {
-                platform: 'local-gitlab',
-                owner,
-                repo,
-                baseUrl: `${hostUrl}/api/v4`,
-                hostUrl: hostUrl
-            };
-        }
+        return parseSshStandardMatch(match);
     }
 
-    // 4. 匹配其他SSH格式：ssh://git@host/owner/repo.git（无端口）
-    match = url.match(/^ssh:\/\/git@([^\/]+)\/([^\/]+)\/(.+?)(?:\.git)?$/);
+    // 4. 匹配其他SSH格式（无端口）
+    match = url.match(GIT_URL_PATTERNS.sshNoPort);
     if (match) {
-        const hostname = match[1];
-        const owner = match[2];
-        const repo = match[3];
-
-        logToOutput('SSH格式（无端口）匹配成功', { hostname, owner, repo });
-
-        if (hostname.includes('github.com')) {
-            return {
-                platform: 'github',
-                owner,
-                repo,
-                baseUrl: 'https://api.github.com',
-                hostUrl: `https://${hostname}`
-            };
-        } else if (hostname.includes('gitlab.com')) {
-            return {
-                platform: 'gitlab',
-                owner,
-                repo,
-                baseUrl: 'https://gitlab.com/api/v4',
-                hostUrl: `https://${hostname}`
-            };
-        } else if (hostname.includes('gitee.com')) {
-            return {
-                platform: 'gitee',
-                owner,
-                repo,
-                baseUrl: 'https://gitee.com/api/v5',
-                hostUrl: `https://${hostname}`
-            };
-        } else {
-            // 本地GitLab
-            const isInternalIP = hostname.match(/^192\.168\./) || hostname.match(/^10\./) || hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) || hostname === 'localhost';
-            const protocol = isInternalIP ? 'http' : 'https';
-            const hostUrl = `${protocol}://${hostname}`;
-
-            return {
-                platform: 'local-gitlab',
-                owner,
-                repo,
-                baseUrl: `${hostUrl}/api/v4`,
-                hostUrl: hostUrl
-            };
-        }
+        return parseSshNoPortMatch(match);
     }
 
-    logToOutput('Git URL解析失败 - 尝试所有模式', {
-        url,
-        patterns: [
-            'https://host/owner/repo.git',
-            'ssh://git@host:port/owner/repo.git',
-            'git@host:owner/repo.git',
-            'ssh://git@host/owner/repo.git'
-        ]
-    });
-
+    logToOutput('Git URL解析失败');
     return null;
+}
+
+// 辅助函数：解析HTTPS匹配
+function parseHttpsMatch(match: RegExpMatchArray): RepoInfo {
+    const [, fullHostUrl, hostname, owner, repo] = match;
+    logToOutput('HTTPS格式匹配成功', { fullHostUrl, hostname, owner, repo });
+
+    return createRepoInfo(hostname, owner, repo, fullHostUrl);
+}
+
+// 辅助函数：解析SSH带端口匹配
+function parseSshWithPortMatch(match: RegExpMatchArray): RepoInfo {
+    const [, hostname, port, owner, repo] = match;
+    logToOutput('SSH格式（带端口）匹配成功', { hostname, port, owner, repo });
+
+    if (isKnownPlatform(hostname)) {
+        return createRepoInfo(hostname, owner, repo, `https://${hostname}`);
+    }
+
+    // 本地GitLab处理
+    const isInternalIP = isInternalAddress(hostname);
+    const protocol = isInternalIP ? 'http' : 'https';
+    const webPort = port === '2222' ? '' : `:${port}`;
+    const hostUrl = `${protocol}://${hostname}${webPort}`;
+
+    return {
+        platform: 'local-gitlab',
+        owner,
+        repo,
+        baseUrl: `${hostUrl}/api/v4`,
+        hostUrl: hostUrl
+    };
+}
+
+// 辅助函数：解析标准SSH匹配
+function parseSshStandardMatch(match: RegExpMatchArray): RepoInfo {
+    const [, hostname, owner, repo] = match;
+    logToOutput('SSH格式（标准）匹配成功', { hostname, owner, repo });
+
+    if (isKnownPlatform(hostname)) {
+        return createRepoInfo(hostname, owner, repo, `https://${hostname}`);
+    }
+
+    // 本地GitLab处理
+    const isInternalIP = isInternalAddress(hostname);
+    const protocol = isInternalIP ? 'http' : 'https';
+    const hostUrl = `${protocol}://${hostname}`;
+
+    return {
+        platform: 'local-gitlab',
+        owner,
+        repo,
+        baseUrl: `${hostUrl}/api/v4`,
+        hostUrl: hostUrl
+    };
+}
+
+// 辅助函数：解析SSH无端口匹配
+function parseSshNoPortMatch(match: RegExpMatchArray): RepoInfo {
+    const [, hostname, owner, repo] = match;
+    logToOutput('SSH格式（无端口）匹配成功', { hostname, owner, repo });
+
+    if (isKnownPlatform(hostname)) {
+        return createRepoInfo(hostname, owner, repo, `https://${hostname}`);
+    }
+
+    // 本地GitLab处理
+    const isInternalIP = isInternalAddress(hostname);
+    const protocol = isInternalIP ? 'http' : 'https';
+    const hostUrl = `${protocol}://${hostname}`;
+
+    return {
+        platform: 'local-gitlab',
+        owner,
+        repo,
+        baseUrl: `${hostUrl}/api/v4`,
+        hostUrl: hostUrl
+    };
+}
+
+// 辅助函数：检查是否为已知平台
+function isKnownPlatform(hostname: string): boolean {
+    return hostname.includes('github.com') || 
+           hostname.includes('gitlab.com') || 
+           hostname.includes('gitee.com');
+}
+
+// 辅助函数：检查是否为内网地址
+function isInternalAddress(hostname: string): boolean {
+    return !!(hostname.match(/^192\.168\./) || 
+              hostname.match(/^10\./) || 
+              hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) || 
+              hostname === 'localhost');
+}
+
+// 辅助函数：创建仓库信息
+function createRepoInfo(hostname: string, owner: string, repo: string, hostUrl: string): RepoInfo {
+    if (hostname.includes('github.com')) {
+        return {
+            platform: 'github',
+            owner,
+            repo,
+            baseUrl: 'https://api.github.com',
+            hostUrl
+        };
+    } else if (hostname.includes('gitlab.com')) {
+        return {
+            platform: 'gitlab',
+            owner,
+            repo,
+            baseUrl: 'https://gitlab.com/api/v4',
+            hostUrl
+        };
+    } else if (hostname.includes('gitee.com')) {
+        return {
+            platform: 'gitee',
+            owner,
+            repo,
+            baseUrl: 'https://gitee.com/api/v5',
+            hostUrl
+        };
+    } else {
+        return {
+            platform: 'local-gitlab',
+            owner,
+            repo,
+            baseUrl: `${hostUrl}/api/v4`,
+            hostUrl
+        };
+    }
 }
 
 // 优化的获取Git API函数
@@ -476,24 +472,28 @@ async function getRepoInfo(): Promise<RepoInfo | null> {
     }
 }
 
+// 预编译清理规则正则表达式
+const TITLE_CLEAN_PATTERNS = [
+    /^(?:\[[^\]]+\]|【[^】]+】|\([^)]+\)|[A-Z]+[-:])\s*-?\s*/,
+    /^\s+|\s+$/g // trim 操作
+];
+
 // 优化的清理议题标题函数
 function cleanIssueTitle(title: string): string {
-    // 合并所有正则为一个，提高性能
-    const cleanedTitle = title
-        .replace(/^(?:\[[^\]]+\]|【[^】]+】|\([^)]+\)|[A-Z]+[-:])\s*-?\s*/, '')
-        .trim();
-
+    if (!title) return title;
+    
+    let cleanedTitle = title.replace(TITLE_CLEAN_PATTERNS[0], '').trim();
     return cleanedTitle || title;
 }
 
-// 抽取API请求构建逻辑
-function buildApiRequest(repoInfo: RepoInfo, accessToken: string): { apiUrl: string; headers: any } {
+// 优化的API请求构建逻辑 - 支持分页
+function buildApiRequest(repoInfo: RepoInfo, accessToken: string, page: number = 1, perPage: number = 50): { apiUrl: string; headers: any } {
     let apiUrl: string;
     let headers: any = {};
 
     switch (repoInfo.platform) {
         case 'github':
-            apiUrl = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/issues?state=open&per_page=${config.maxIssues}`;
+            apiUrl = `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/issues?state=open&page=${page}&per_page=${perPage}`;
             headers = {
                 'Authorization': `token ${accessToken}`,
                 'Accept': 'application/vnd.github.v3+json',
@@ -505,22 +505,15 @@ function buildApiRequest(repoInfo: RepoInfo, accessToken: string): { apiUrl: str
         case 'local-gitlab':
             const cleanRepo = repoInfo.repo.replace(/\.git$/, '');
             const projectPath = encodeURIComponent(`${repoInfo.owner}/${cleanRepo}`);
-            apiUrl = `${repoInfo.baseUrl}/projects/${projectPath}/issues?state=opened&per_page=${config.maxIssues}`;
+            apiUrl = `${repoInfo.baseUrl}/projects/${projectPath}/issues?state=opened&page=${page}&per_page=${perPage}`;
             headers = {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json'
             };
-
-            logToOutput(`GitLab API调用详情`, {
-                cleanRepo,
-                projectPath,
-                apiUrl: apiUrl.replace(accessToken, '***'),
-                headers: { ...headers, Authorization: 'Bearer ***' }
-            });
             break;
 
         case 'gitee':
-            apiUrl = `https://gitee.com/api/v5/repos/${repoInfo.owner}/${repoInfo.repo}/issues?state=open&access_token=${accessToken}&per_page=${config.maxIssues}`;
+            apiUrl = `https://gitee.com/api/v5/repos/${repoInfo.owner}/${repoInfo.repo}/issues?state=open&access_token=${accessToken}&page=${page}&per_page=${perPage}`;
             headers = {
                 'Accept': 'application/json',
                 'User-Agent': 'VSCode-CommitHelper'
@@ -534,9 +527,8 @@ function buildApiRequest(repoInfo: RepoInfo, accessToken: string): { apiUrl: str
     return { apiUrl, headers };
 }
 
-// 优化的获取议题列表函数
+// 优化的获取议题列表函数 - 添加分页和增量加载
 async function fetchIssues(repoInfo: RepoInfo): Promise<Issue[]> {
-    // 生成缓存键
     const cacheKey = `${repoInfo.platform}-${repoInfo.owner}-${repoInfo.repo}`;
 
     // 检查缓存
@@ -548,15 +540,6 @@ async function fetchIssues(repoInfo: RepoInfo): Promise<Issue[]> {
 
     const accessToken = await getAccessToken(repoInfo.platform, repoInfo.hostUrl);
 
-    logToOutput(`开始获取议题`, {
-        platform: repoInfo.platform,
-        baseUrl: repoInfo.baseUrl,
-        owner: repoInfo.owner,
-        repo: repoInfo.repo,
-        hasToken: !!accessToken,
-        tokenPrefix: accessToken ? accessToken.substring(0, 8) + '...' : 'none'
-    });
-
     if (!accessToken) {
         const errorMsg = `未找到 ${repoInfo.platform} 的访问令牌`;
         logToOutput(errorMsg);
@@ -565,65 +548,70 @@ async function fetchIssues(repoInfo: RepoInfo): Promise<Issue[]> {
     }
 
     try {
-        // 构建API URL和headers
-        const { apiUrl, headers } = buildApiRequest(repoInfo, accessToken);
+        let allIssues: Issue[] = [];
+        let page = 1;
+        const perPage = Math.min(config.maxIssues, 50); // 单页最多50个
 
-        // 使用带重试的请求
-        const issues = await makeHttpRequestWithRetry(apiUrl, {
-            method: 'GET',
-            headers: headers,
-            timeout: config.requestTimeout
-        });
+        while (allIssues.length < config.maxIssues) {
+            const { apiUrl, headers } = buildApiRequest(repoInfo, accessToken, page, perPage);
 
-        logToOutput(`API响应数据`, {
-            type: Array.isArray(issues) ? 'array' : typeof issues,
-            length: Array.isArray(issues) ? issues.length : 'N/A',
-            firstIssue: Array.isArray(issues) && issues.length > 0 ? {
-                id: issues[0].id || issues[0].iid,
-                title: issues[0].title?.substring(0, 50) + '...',
-                state: issues[0].state
-            } : 'none'
-        });
+            const issues = await makeHttpRequestWithRetry(apiUrl, {
+                method: 'GET',
+                headers: headers,
+                timeout: config.requestTimeout
+            });
 
-        if (!Array.isArray(issues)) {
-            logToOutput(`API返回数据格式错误`, { actualType: typeof issues, data: issues });
-            throw new Error(`API返回的不是数组格式: ${typeof issues}`);
+            if (!Array.isArray(issues) || issues.length === 0) {
+                break; // 没有更多数据了
+            }
+
+            // 批量转换议题格式
+            const convertedIssues: Issue[] = issues.map((issue: any) => ({
+                id: issue.id || issue.iid,
+                title: issue.title,
+                number: issue.number || issue.iid,
+                state: issue.state,
+                url: issue.html_url || issue.web_url
+            }));
+
+            allIssues.push(...convertedIssues);
+
+            // 如果返回的数据少于请求的数量，说明已经是最后一页
+            if (issues.length < perPage) {
+                break;
+            }
+
+            page++;
         }
 
-        // 批量转换议题格式
-        const convertedIssues: Issue[] = issues.map((issue: any) => ({
-            id: issue.id || issue.iid,
-            title: issue.title,
-            number: issue.number || issue.iid,
-            state: issue.state,
-            url: issue.html_url || issue.web_url
-        }));
+        // 限制最大数量
+        if (allIssues.length > config.maxIssues) {
+            allIssues = allIssues.slice(0, config.maxIssues);
+        }
 
         // 缓存结果
-        issueCache.set(cacheKey, convertedIssues);
+        issueCache.set(cacheKey, allIssues);
 
-        logToOutput(`议题获取成功并已缓存`, {
-            totalCount: convertedIssues.length,
-            issues: convertedIssues.slice(0, 3).map(issue => ({
+        logToOutput(`议题获取成功`, {
+            totalCount: allIssues.length,
+            pages: page - 1,
+            firstFew: allIssues.slice(0, 3).map(issue => ({
                 number: issue.number,
                 title: issue.title.substring(0, 30) + '...'
             }))
         });
 
-        return convertedIssues;
+        return allIssues;
 
     } catch (error: any) {
         const errorMsg = `获取议题失败: ${error.message}`;
-        logToOutput(errorMsg, {
-            error: error.toString(),
-            stack: error.stack?.substring(0, 500)
-        });
+        logToOutput(errorMsg, { error: error.toString() });
         vscode.window.showErrorMessage(errorMsg);
         return [];
     }
 }
 
-// 主要的格式化函数
+// 优化的主要格式化函数 - 改进并发处理和用户体验
 async function formatCommitMessage(): Promise<void> {
     logToOutput('开始格式化提交消息');
 
@@ -643,178 +631,78 @@ async function formatCommitMessage(): Promise<void> {
 
         const repository = git.repositories[0];
         const currentMessage = repository.inputBox.value || '';
-
-        logToOutput('当前提交消息', { currentMessage });
-
-        // 检查是否已有内容
         const hasExistingContent = currentMessage.trim().length > 0;
-        let commitTitle = '';
 
-        // 使用进度提示获取议题
-        const allIssues = await vscode.window.withProgress({
+        logToOutput('当前提交消息状态', { 
+            hasContent: hasExistingContent,
+            length: currentMessage.length 
+        });
+
+        // 异步获取议题，不阻塞UI
+        let allIssues: Issue[] = [];
+        
+        const issuesPromise = vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: "正在获取议题列表...",
             cancellable: true
         }, async (progress, token) => {
-            logToOutput('获取议题列表以供绑定选择');
-            const issues = await fetchIssues(repoInfo);
-
-            if (token.isCancellationRequested) {
+            try {
+                const issues = await fetchIssues(repoInfo);
+                if (token.isCancellationRequested) {
+                    return [];
+                }
+                return issues;
+            } catch (error) {
+                logToOutput('获取议题时出错', { error: String(error) });
                 return [];
             }
-
-            return issues;
         });
 
+        // 让用户选择议题或继续不绑定
+        allIssues = await issuesPromise;
+        
         if (!allIssues) {
             return; // 用户取消了
         }
 
-        logToOutput('获取到的所有议题', {
-            count: allIssues.length,
-            issues: allIssues.map(i => ({
-                number: i.number,
-                originalTitle: i.title,
-                cleanedTitle: cleanIssueTitle(i.title).substring(0, 50) + '...'
-            }))
-        });
-
-        // 让用户选择要绑定的议题（无论是否有现有内容）
         let selectedIssues: Issue[] = [];
+        let commitTitle = '';
 
-        if (allIssues.length > 0) {
-            // 创建议题选择列表
-            const issuePickItems = [
-                {
-                    label: '$(x) 不绑定议题',
-                    description: '本次提交不关联任何议题',
-                    issue: null
-                },
-                ...allIssues.map(issue => {
-                    const cleanedTitle = cleanIssueTitle(issue.title);
-                    return {
-                        label: `$(issue-opened) #${issue.number}`,
-                        description: cleanedTitle,
-                        detail: `原标题: ${issue.title}`,
-                        issue: { ...issue, title: cleanedTitle } // 保存清理后的标题
-                    };
-                })
-            ];
-
-            const selectedItem = await vscode.window.showQuickPick(issuePickItems, {
-                placeHolder: hasExistingContent
-                    ? '选择要绑定的议题（当前已有提交内容，将保留现有内容）'
-                    : '选择要绑定的议题或不绑定议题',
-                matchOnDescription: true,
-                matchOnDetail: true
-            });
-
-            if (selectedItem === undefined) {
-                logToOutput('用户取消了议题选择');
-                return;
-            }
-
-            if (selectedItem.issue) {
-                selectedIssues = [selectedItem.issue];
-                logToOutput('用户选择绑定议题', {
-                    issueNumber: selectedItem.issue.number,
-                    originalTitle: allIssues.find(i => i.number === selectedItem.issue!.number)?.title,
-                    cleanedTitle: selectedItem.issue.title
-                });
-            } else {
-                logToOutput('用户选择不绑定议题');
-            }
-        } else {
-            logToOutput('没有找到可用的议题');
-        }
-
-        // 确定提交标题的逻辑
-        if (hasExistingContent) {
-            // 如果已有内容，提取并使用现有标题
-            commitTitle = currentMessage.replace(/^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+?\))?\s*:\s*/, '').trim();
-
-            if (!commitTitle) {
-                commitTitle = currentMessage.trim();
-            }
-
-            logToOutput('使用现有提交消息内容', { extractedTitle: commitTitle });
-        } else {
-            // 如果没有现有内容
-            if (selectedIssues.length > 0) {
-                // 使用选择的议题标题（已清理）
-                commitTitle = selectedIssues[0].title;
-                logToOutput('使用议题标题', { title: commitTitle });
-            } else {
-                // 没有选择议题，需要用户输入
-                const inputTitle = await vscode.window.showInputBox({
-                    prompt: '输入提交描述',
-                    placeHolder: '简要描述本次提交的内容'
-                });
-
-                if (!inputTitle || !inputTitle.trim()) {
-                    logToOutput('用户未输入提交描述');
-                    return;
-                }
-
-                commitTitle = inputTitle.trim();
-                logToOutput('用户手动输入的标题', { title: commitTitle });
-            }
-        }
-
-        // 选择提交类型
-        const commitTypes = [
-            { label: 'feat', description: '新功能' },
-            { label: 'fix', description: '修复bug' },
-            { label: 'docs', description: '文档更新' },
-            { label: 'style', description: '代码格式（不影响功能）' },
-            { label: 'refactor', description: '重构（既不是新功能也不是修复bug）' },
-            { label: 'test', description: '添加或修改测试' },
-            { label: 'chore', description: '构建过程或辅助工具的变动' },
-            { label: 'perf', description: '性能优化' },
-            { label: 'ci', description: '持续集成相关' },
-            { label: 'build', description: '构建相关' },
-            { label: 'revert', description: '回滚提交' }
-        ];
-
-        const selectedType = await vscode.window.showQuickPick(commitTypes, {
-            placeHolder: '选择提交类型'
-        });
-
-        if (!selectedType) {
-            logToOutput('用户未选择提交类型');
+        // 处理议题选择逻辑
+        const { selectedIssue, userCancelled } = await handleIssueSelection(allIssues, hasExistingContent, repoInfo);
+        
+        if (userCancelled) {
             return;
         }
 
-        logToOutput('用户选择的提交类型', { type: selectedType.label });
-
-        // 输入作用域（可选）
-        const scope = await vscode.window.showInputBox({
-            prompt: '输入作用域（可选）',
-            placeHolder: '例如：api, ui, auth'
-        });
-
-        logToOutput('用户输入的作用域', { scope: scope || '无' });
-
-        // 生成提交消息
-        let commitMessage = selectedType.label;
-        if (scope && scope.trim()) {
-            commitMessage += `(${scope.trim()})`;
+        if (selectedIssue) {
+            selectedIssues = [selectedIssue];
         }
-        commitMessage += `: ${commitTitle}`;
 
-        // 添加议题引用（如果选择了议题）
-        if (selectedIssues.length > 0) {
-            commitMessage += `\n\nCloses #${selectedIssues[0].number}`;
+        // 确定提交标题
+        commitTitle = await determineCommitTitle(currentMessage, selectedIssues, hasExistingContent);
+        
+        if (!commitTitle) {
+            return; // 用户取消了输入
         }
+
+        // 获取提交类型和作用域
+        const { commitType, scope, cancelled } = await getCommitTypeAndScope();
+        
+        if (cancelled) {
+            return;
+        }
+
+        // 生成最终提交消息
+        const finalMessage = generateCommitMessage(commitType, scope, commitTitle, selectedIssues);
 
         // 更新Git输入框
-        repository.inputBox.value = commitMessage;
+        repository.inputBox.value = finalMessage;
 
         logToOutput('提交消息生成完成', {
-            commitMessage,
-            hadExistingContent: hasExistingContent,
-            usedExistingTitle: hasExistingContent,
-            boundIssue: selectedIssues.length > 0 ? selectedIssues[0].number : null
+            hasIssue: selectedIssues.length > 0,
+            issueNumber: selectedIssues.length > 0 ? selectedIssues[0].number : null,
+            messageLength: finalMessage.length
         });
 
         vscode.window.showInformationMessage(
@@ -828,6 +716,287 @@ async function formatCommitMessage(): Promise<void> {
         logToOutput(errorMsg, { error: error.toString() });
         vscode.window.showErrorMessage(errorMsg);
     }
+}
+
+// 定义选择项类型
+interface IssuePickItem {
+    label: string;
+    description: string;
+    detail?: string;
+    action: 'refresh' | 'manual' | 'none' | 'info' | 'select';
+    issue: Issue | null;
+}
+
+// 辅助函数：处理议题选择
+async function handleIssueSelection(allIssues: Issue[], hasExistingContent: boolean, repoInfo?: RepoInfo): Promise<{ selectedIssue: Issue | null, userCancelled: boolean }> {
+    let currentIssues = allIssues;
+
+    while (true) {
+        const issuePickItems = createIssuePickItems(currentIssues);
+
+        const selectedItem = await vscode.window.showQuickPick(issuePickItems, {
+            placeHolder: hasExistingContent
+                ? '选择要绑定的议题（当前已有提交内容，将保留现有内容）'
+                : '选择要绑定的议题或不绑定议题',
+            matchOnDescription: true,
+            matchOnDetail: true
+        });
+
+        if (selectedItem === undefined) {
+            return { selectedIssue: null, userCancelled: true };
+        }
+
+        // 处理特殊操作
+        if (selectedItem.action === 'refresh') {
+            if (!repoInfo) {
+                vscode.window.showErrorMessage('无法刷新议题：仓库信息不可用');
+                continue;
+            }
+
+            // 刷新议题
+            const refreshedIssues = await refreshIssues(repoInfo);
+            if (refreshedIssues) {
+                currentIssues = refreshedIssues;
+                vscode.window.showInformationMessage(`议题列表已刷新，共找到 ${currentIssues.length} 个议题`);
+            }
+            continue;
+        }
+
+        if (selectedItem.action === 'manual') {
+            // 手动绑定议题
+            const manualIssue = await handleManualIssueBinding();
+            if (manualIssue) {
+                return { selectedIssue: manualIssue, userCancelled: false };
+            }
+            continue;
+        }
+
+        if (selectedItem.action === 'info') {
+            // 信息项，继续显示菜单
+            continue;
+        }
+
+        // 处理正常的议题选择
+        if (selectedItem.issue) {
+            logToOutput('用户选择绑定议题', {
+                issueNumber: selectedItem.issue.number,
+                cleanedTitle: selectedItem.issue.title
+            });
+        } else {
+            logToOutput('用户选择不绑定议题');
+        }
+
+        return { selectedIssue: selectedItem.issue, userCancelled: false };
+    }
+}
+
+// 辅助函数：创建议题选择项
+function createIssuePickItems(issues: Issue[]): IssuePickItem[] {
+    const pickItems: IssuePickItem[] = [
+        {
+            label: '$(refresh) 刷新议题列表',
+            description: '重新获取最新的议题列表',
+            action: 'refresh',
+            issue: null
+        },
+        {
+            label: '$(edit) 手动绑定议题',
+            description: '手动输入议题编号进行绑定',
+            action: 'manual',
+            issue: null
+        },
+        {
+            label: '$(x) 不绑定议题',
+            description: '本次提交不关联任何议题',
+            action: 'none',
+            issue: null
+        }
+    ];
+
+    if (issues.length === 0) {
+        pickItems.splice(0, 1); // 如果没有议题，移除刷新按钮
+        pickItems.unshift({
+            label: '$(info) 未找到议题',
+            description: '当前仓库没有打开的议题',
+            action: 'info',
+            issue: null
+        });
+    } else {
+        // 添加议题列表
+        const issueItems: IssuePickItem[] = issues.map(issue => {
+            const cleanedTitle = cleanIssueTitle(issue.title);
+            return {
+                label: `$(issue-opened) #${issue.number}`,
+                description: cleanedTitle,
+                detail: issue.title !== cleanedTitle ? `原标题: ${issue.title}` : undefined,
+                action: 'select',
+                issue: { ...issue, title: cleanedTitle }
+            };
+        });
+
+        pickItems.push(...issueItems);
+    }
+
+    return pickItems;
+}
+
+// 辅助函数：刷新议题
+async function refreshIssues(repoInfo: RepoInfo): Promise<Issue[] | null> {
+    try {
+        // 清除缓存以强制重新获取
+        const cacheKey = `${repoInfo.platform}-${repoInfo.owner}-${repoInfo.repo}`;
+        issueCache.delete(cacheKey);
+
+        logToOutput('开始刷新议题列表', { platform: repoInfo.platform, repo: `${repoInfo.owner}/${repoInfo.repo}` });
+
+        // 使用进度指示器获取议题
+        const issues = await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "正在刷新议题列表...",
+            cancellable: false
+        }, async (progress) => {
+            progress.report({ increment: 0, message: "连接到远程仓库..." });
+            
+            const fetchedIssues = await fetchIssues(repoInfo);
+            
+            progress.report({ increment: 100, message: "议题获取完成" });
+            return fetchedIssues;
+        });
+
+        logToOutput('议题刷新完成', { count: issues.length });
+        return issues;
+
+    } catch (error: any) {
+        const errorMsg = `刷新议题失败: ${error.message}`;
+        logToOutput(errorMsg, { error: error.toString() });
+        vscode.window.showErrorMessage(errorMsg);
+        return null;
+    }
+}
+
+// 辅助函数：处理手动议题绑定
+async function handleManualIssueBinding(): Promise<Issue | null> {
+    const issueInput = await vscode.window.showInputBox({
+        prompt: '输入议题编号',
+        placeHolder: '例如：123 或 #123',
+        validateInput: (value) => {
+            if (!value) return undefined;
+            const cleaned = value.replace('#', '');
+            const number = parseInt(cleaned, 10);
+            if (isNaN(number) || number <= 0) {
+                return '请输入有效的议题编号';
+            }
+            return undefined;
+        }
+    });
+
+    if (!issueInput) {
+        logToOutput('用户取消了手动议题绑定');
+        return null;
+    }
+
+    const issueNumber = parseInt(issueInput.replace('#', ''), 10);
+    
+    // 创建一个虚拟的议题对象
+    const manualIssue: Issue = {
+        id: issueNumber,
+        number: issueNumber,
+        title: `手动绑定的议题 #${issueNumber}`,
+        state: 'open',
+        url: ''
+    };
+
+    logToOutput('用户手动绑定议题', { issueNumber });
+    vscode.window.showInformationMessage(`已手动绑定议题 #${issueNumber}`);
+
+    return manualIssue;
+}
+
+// 辅助函数：确定提交标题
+async function determineCommitTitle(currentMessage: string, selectedIssues: Issue[], hasExistingContent: boolean): Promise<string> {
+    if (hasExistingContent) {
+        // 提取现有标题
+        let commitTitle = currentMessage.replace(/^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+?\))?\s*:\s*/, '').trim();
+        if (!commitTitle) {
+            commitTitle = currentMessage.trim();
+        }
+        logToOutput('使用现有提交消息内容', { extractedTitle: commitTitle });
+        return commitTitle;
+    } else if (selectedIssues.length > 0) {
+        // 使用议题标题
+        logToOutput('使用议题标题', { title: selectedIssues[0].title });
+        return selectedIssues[0].title;
+    } else {
+        // 需要用户输入
+        const inputTitle = await vscode.window.showInputBox({
+            prompt: '输入提交描述',
+            placeHolder: '简要描述本次提交的内容'
+        });
+
+        if (!inputTitle || !inputTitle.trim()) {
+            logToOutput('用户未输入提交描述');
+            return '';
+        }
+
+        const commitTitle = inputTitle.trim();
+        logToOutput('用户手动输入的标题', { title: commitTitle });
+        return commitTitle;
+    }
+}
+
+// 辅助函数：获取提交类型和作用域
+async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: string, cancelled: boolean }> {
+    // 预定义提交类型
+    const commitTypes = [
+        { label: 'feat', description: '新功能' },
+        { label: 'fix', description: '修复bug' },
+        { label: 'docs', description: '文档更新' },
+        { label: 'style', description: '代码格式（不影响功能）' },
+        { label: 'refactor', description: '重构（既不是新功能也不是修复bug）' },
+        { label: 'test', description: '添加或修改测试' },
+        { label: 'chore', description: '构建过程或辅助工具的变动' },
+        { label: 'perf', description: '性能优化' },
+        { label: 'ci', description: '持续集成相关' },
+        { label: 'build', description: '构建相关' },
+        { label: 'revert', description: '回滚提交' }
+    ];
+
+    const selectedType = await vscode.window.showQuickPick(commitTypes, {
+        placeHolder: '选择提交类型'
+    });
+
+    if (!selectedType) {
+        logToOutput('用户未选择提交类型');
+        return { commitType: '', scope: '', cancelled: true };
+    }
+
+    logToOutput('用户选择的提交类型', { type: selectedType.label });
+
+    // 输入作用域（可选）
+    const scope = await vscode.window.showInputBox({
+        prompt: '输入作用域（可选）',
+        placeHolder: '例如：api, ui, auth'
+    });
+
+    logToOutput('用户输入的作用域', { scope: scope || '无' });
+
+    return { commitType: selectedType.label, scope: scope || '', cancelled: false };
+}
+
+// 辅助函数：生成提交消息
+function generateCommitMessage(commitType: string, scope: string, commitTitle: string, selectedIssues: Issue[]): string {
+    let commitMessage = commitType;
+    if (scope && scope.trim()) {
+        commitMessage += `(${scope.trim()})`;
+    }
+    commitMessage += `: ${commitTitle}`;
+
+    // 添加议题引用（如果选择了议题）
+    if (selectedIssues.length > 0) {
+        commitMessage += `\n\nCloses #${selectedIssues[0].number}`;
+    }
+
+    return commitMessage;
 }
 
 // 测试配置
@@ -953,8 +1122,9 @@ async function debugRepo(): Promise<void> {
 async function clearCache(): Promise<void> {
     issueCache.clear();
     repoInfoCache.clear();
-    logToOutput('缓存已清除');
-    vscode.window.showInformationMessage('缓存已清除');
+    tokenCache.clear();
+    logToOutput('所有缓存已清除');
+    vscode.window.showInformationMessage('所有缓存已清除');
 }
 
 // 切换调试模式命令
@@ -987,10 +1157,41 @@ export function activate(context: vscode.ExtensionContext) {
         toggleDebugDisposable,
         outputChannel
     );
+
+    // 清理资源的处理
+    context.subscriptions.push({
+        dispose: () => {
+            // 清理HTTP代理
+            if (httpAgents.http) {
+                httpAgents.http.destroy();
+            }
+            if (httpAgents.https) {
+                httpAgents.https.destroy();
+            }
+            
+            // 清理缓存
+            issueCache.dispose();
+            repoInfoCache.dispose();
+            tokenCache.dispose();
+        }
+    });
 }
 
 export function deactivate() {
     if (outputChannel) {
         outputChannel.dispose();
     }
+    
+    // 清理HTTP代理
+    if (httpAgents.http) {
+        httpAgents.http.destroy();
+    }
+    if (httpAgents.https) {
+        httpAgents.https.destroy();
+    }
+    
+    // 清理缓存
+    issueCache.dispose();
+    repoInfoCache.dispose();
+    tokenCache.dispose();
 }
