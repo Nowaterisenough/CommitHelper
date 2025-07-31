@@ -1,6 +1,11 @@
-## [1.0.5] - 2025-07-31
+## [1.0.6] - 2025-07-31
 
 ### 新功能
+- feat: 添加应用图标文件并更新package.json中的图标路径
+
+### 重构
+- refactor: 优化构建和发布流程，移除不必要的构建步骤并调整版本处理逻辑
+
 - feat: 更新VS Code扩展支持的命令和版本要求
 - feat: Update package configuration and add caching mechanism
 
