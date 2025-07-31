@@ -903,29 +903,21 @@ function createIssuePickItems(issues: Issue[]): IssuePickItem[] {
 
         // 添加议题列表 - 保持原始标题
         const issueItems: IssuePickItem[] = issues.map(issue => {
-            const typeInfo = detectIssueType(issue.title);
-            
-            // label: 显示原始议题标题（用于匹配和后续修正commit前缀类型）
+            // label: 显示原始议题标题
             const maxTitleLength = 80;
             const displayTitle = issue.title.length > maxTitleLength 
                 ? issue.title.substring(0, maxTitleLength) + '...' 
                 : issue.title;
             
-            // description: 显示议题编号
-            const issueNumber = `#${issue.number} ${typeInfo.icon} ${typeInfo.label}`;
+            // description: 只显示议题编号
+            const issueNumber = `#${issue.number}`;
             
-            // detail: 如果标题被截断，显示完整标题
-            let detail = undefined;
-            if (issue.title.length > maxTitleLength) {
-                detail = `完整标题: ${issue.title}`;
-            }
-
             return {
                 label: `$(issue-opened) ${displayTitle}`,
                 description: issueNumber,
-                detail,
+                // 移除 detail 属性，避免显示为两行
                 action: 'select',
-                issue: issue // 保持原始的issue对象，不修改title
+                issue: issue
             };
         });
 
@@ -1069,29 +1061,28 @@ async function determineCommitTitle(currentMessage: string, selectedIssues: Issu
 async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: string, cancelled: boolean, isBreaking: boolean }> {
     // 预定义提交类型
     const commitTypes = [
-        { label: 'feat', type: '新功能' },
-        { label: 'fix', type: '修复bug' },
-        { label: 'docs', type: '文档更新' },
-        { label: 'style', type: '代码格式（不影响功能）' },
-        { label: 'refactor', type: '重构（既不是新功能也不是修复bug）' },
-        { label: 'test', type: '添加或修改测试' },
-        { label: 'chore', type: '构建过程或辅助工具的变动' },
-        { label: 'perf', type: '性能优化' },
-        { label: 'ci - 持续集成相关', type: 'ci' },
-        { label: 'build', type: '构建相关' },
-        { label: 'revert', type: '回滚提交' }
+        { label: 'feat', description: '新功能' },
+        { label: 'fix', description: '修复bug' },
+        { label: 'docs', description: '文档更新' },
+        { label: 'style', description: '代码格式（不影响功能）' },
+        { label: 'refactor', description: '重构（既不是新功能也不是修复bug）' },
+        { label: 'test', description: '添加或修改测试' },
+        { label: 'chore', description: '构建过程或辅助工具的变动' },
+        { label: 'perf', description: '性能优化' },
+        { label: 'ci', description: '持续集成相关' },
+        { label: 'build', description: '构建相关' },
+        { label: 'revert', description: '回滚提交' }
     ];
 
     // 创建可切换状态的选择项
     let isBreaking = false;
     
     while (true) {
-        // 添加 Breaking Change 切换选项 - 双行显示
+        // 添加 Breaking Change 切换选项
         const optionsWithToggle: vscode.QuickPickItem[] = [
             {
-                label: `${isBreaking ? '$(check)' : '$(empty)'} Breaking Change`,
-                description: '',
-                detail: '点击设置为Breaking Change类型(破坏性变更)',
+                label: `${isBreaking ? '$(check)' : '$(circle-outline)'} Breaking Change`,
+                description: '点击设置为Breaking Change类型(破坏性变更)',
                 __toggle: true // 用作内部标识
             } as any,
             { 
@@ -1100,7 +1091,7 @@ async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: str
             },
             ...commitTypes.map(item => ({
                 label: item.label,
-                description: item.type
+                description: item.description
             }))
         ];
 
@@ -1123,8 +1114,8 @@ async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: str
             continue; // 重新显示菜单
         }
 
-        // 正常的提交类型选择
-        const commitType = selectedType.detail || '';
+        // 正常的提交类型选择 - 使用 label 而不是 detail
+        const commitType = selectedType.label;
         logToOutput('用户选择的提交类型', { 
             type: commitType, 
             isBreaking: isBreaking 
