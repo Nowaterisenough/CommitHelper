@@ -472,12 +472,6 @@ async function getRepoInfo(): Promise<RepoInfo | null> {
     }
 }
 
-// 预编译清理规则正则表达式
-const TITLE_CLEAN_PATTERNS = [
-    /^(?:\[[^\]]+\]|【[^】]+】|\([^)]+\)|[A-Z]+[-:])\s*-?\s*/,
-    /^\s+|\s+$/g // trim 操作
-];
-
 // 优化的清理议题标题函数 - 增强清理规则
 function cleanIssueTitle(title: string): string {
     if (!title) return title;
