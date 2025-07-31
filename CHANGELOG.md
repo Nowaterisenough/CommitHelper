@@ -1,6 +1,15 @@
-## [1.0.4] - 2025-07-31
+## [1.0.5] - 2025-07-31
 
 ### 新功能
+- feat: 更新VS Code扩展支持的命令和版本要求
+- feat: Update package configuration and add caching mechanism
+
+### 修复
+- fix: 更新上传VSIX步骤中的actions/upload-artifact版本至v4
+
+### 重构
+- refactor: 优化构建和发布流程，移除不必要的构建步骤并调整版本处理逻辑
+
 - feat: 更新VS Code扩展支持的命令和版本要求
 - feat: Update package configuration and add caching mechanism
 - feat: 更新VS Code扩展版本至1.0.2，并修正发布命令
