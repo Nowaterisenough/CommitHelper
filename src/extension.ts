@@ -1042,17 +1042,17 @@ async function determineCommitTitle(currentMessage: string, selectedIssues: Issu
 async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: string, cancelled: boolean, isBreaking: boolean }> {
     // 预定义提交类型
     const commitTypes = [
-        { label: 'feat - 新功能', type: 'feat' },
-        { label: 'fix - 修复bug', type: 'fix' },
-        { label: 'docs - 文档更新', type: 'docs' },
-        { label: 'style - 代码格式（不影响功能）', type: 'style' },
-        { label: 'refactor - 重构（既不是新功能也不是修复bug）', type: 'refactor' },
-        { label: 'test - 添加或修改测试', type: 'test' },
-        { label: 'chore - 构建过程或辅助工具的变动', type: 'chore' },
-        { label: 'perf - 性能优化', type: 'perf' },
+        { label: 'feat', type: '新功能' },
+        { label: 'fix', type: '修复bug' },
+        { label: 'docs', type: '文档更新' },
+        { label: 'style', type: '代码格式（不影响功能）' },
+        { label: 'refactor', type: '重构（既不是新功能也不是修复bug）' },
+        { label: 'test', type: '添加或修改测试' },
+        { label: 'chore', type: '构建过程或辅助工具的变动' },
+        { label: 'perf', type: '性能优化' },
         { label: 'ci - 持续集成相关', type: 'ci' },
-        { label: 'build - 构建相关', type: 'build' },
-        { label: 'revert - 回滚提交', type: 'revert' }
+        { label: 'build', type: '构建相关' },
+        { label: 'revert', type: '回滚提交' }
     ];
 
     // 创建可切换状态的选择项
@@ -1073,8 +1073,7 @@ async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: str
             },
             ...commitTypes.map(item => ({
                 label: item.label,
-                description: '',
-                detail: item.type
+                description: item.type
             }))
         ];
 
