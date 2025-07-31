@@ -16,7 +16,6 @@ icon-1024.png
 *.vsix
 CHANGELOG.md
 README.md
-LICENSE
 
 # 开发工具文件
 *.log
