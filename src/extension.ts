@@ -472,6 +472,13 @@ async function getRepoInfo(): Promise<RepoInfo | null> {
     }
 }
 
+// 预编译清理规则正则表达式
+const TITLE_CLEAN_PATTERNS = [
+    /^(?:\[[^\]]+\]|【[^】]+】|\([^)]+\)|[A-Z]+[-:])\s*-?\s*/,
+    /^\s+|\s+$/g // trim 操作
+];
+
+
 // 优化的清理议题标题函数 - 增强清理规则
 function cleanIssueTitle(title: string): string {
     if (!title) return title;
@@ -505,6 +512,46 @@ function cleanIssueTitle(title: string): string {
     }
     
     return cleanedTitle;
+}
+
+// 议题类型识别规则
+const ISSUE_TYPE_PATTERNS = [
+    { pattern: /^(\[?(?:feat|feature|新功能|功能)\]?[:：\s-]|feat\s*[:：]|feature\s*[:：])/i, type: 'feat', icon: '[FEAT]', label: '新功能' },
+    { pattern: /^(\[?(?:fix|bug|修复|修改|bugfix)\]?[:：\s-]|fix\s*[:：]|bug\s*[:：])/i, type: 'fix', icon: '[FIX]', label: 'Bug修复' },
+    { pattern: /^(\[?(?:docs?|文档|说明)\]?[:：\s-]|docs?\s*[:：])/i, type: 'docs', icon: '[DOCS]', label: '文档' },
+    { pattern: /^(\[?(?:style|样式|格式)\]?[:：\s-]|style\s*[:：])/i, type: 'style', icon: '[STYLE]', label: '样式' },
+    { pattern: /^(\[?(?:refactor|重构)\]?[:：\s-]|refactor\s*[:：])/i, type: 'refactor', icon: '[REFACTOR]', label: '重构' },
+    { pattern: /^(\[?(?:test|测试)\]?[:：\s-]|test\s*[:：])/i, type: 'test', icon: '[TEST]', label: '测试' },
+    { pattern: /^(\[?(?:chore|杂项|维护|配置)\]?[:：\s-]|chore\s*[:：])/i, type: 'chore', icon: '[CHORE]', label: '维护' },
+    { pattern: /^(\[?(?:perf|性能|优化)\]?[:：\s-]|perf\s*[:：])/i, type: 'perf', icon: '[PERF]', label: '性能优化' },
+    { pattern: /^(\[?(?:ci|持续集成|集成)\]?[:：\s-]|ci\s*[:：])/i, type: 'ci', icon: '[CI]', label: 'CI/CD' },
+    { pattern: /^(\[?(?:build|构建|编译)\]?[:：\s-]|build\s*[:：])/i, type: 'build', icon: '[BUILD]', label: '构建' },
+    { pattern: /^(\[?(?:revert|回滚|撤销)\]?[:：\s-]|revert\s*[:：])/i, type: 'revert', icon: '[REVERT]', label: '回滚' },
+    { pattern: /^(\[?(?:hotfix|紧急修复|热修复)\]?[:：\s-]|hotfix\s*[:：])/i, type: 'hotfix', icon: '[HOTFIX]', label: '紧急修复' },
+    { pattern: /^(\[?(?:security|安全)\]?[:：\s-]|security\s*[:：])/i, type: 'security', icon: '[SECURITY]', label: '安全' },
+    { pattern: /^(\[?(?:update|更新|升级)\]?[:：\s-]|update\s*[:：])/i, type: 'update', icon: '[UPDATE]', label: '更新' },
+    { pattern: /^(\[?(?:add|添加|新增)\]?[:：\s-]|add\s*[:：])/i, type: 'add', icon: '[ADD]', label: '新增' },
+    { pattern: /^(\[?(?:remove|删除|移除)\]?[:：\s-]|remove\s*[:：])/i, type: 'remove', icon: '[REMOVE]', label: '删除' }
+];
+
+// 识别议题类型
+function detectIssueType(title: string): { type: string; icon: string; label: string } {
+    if (!title) {
+        return { type: 'other', icon: '[OTHER]', label: '其他' };
+    }
+
+    for (const rule of ISSUE_TYPE_PATTERNS) {
+        if (rule.pattern.test(title)) {
+            return {
+                type: rule.type,
+                icon: rule.icon,
+                label: rule.label
+            };
+        }
+    }
+
+    // 默认类型
+    return { type: 'other', icon: '[OTHER]', label: '其他' };
 }
 
 // 优化的API请求构建逻辑 - 支持分页
