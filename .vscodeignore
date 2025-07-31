@@ -10,3 +10,19 @@ out/**
 .github/**
 esbuild.js
 **/*.ts
+
+# 排除大文件和开发相关文件
+icon-1024.png
+*.vsix
+CHANGELOG.md
+README.md
+LICENSE
+
+# 开发工具文件
+*.log
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.temp
