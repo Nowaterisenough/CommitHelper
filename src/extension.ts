@@ -901,21 +901,22 @@ function createIssuePickItems(issues: Issue[]): IssuePickItem[] {
             kind: vscode.QuickPickItemKind.Separator
         } as any);
 
-        // 添加议题列表 - 保持原始标题
+        // 添加议题列表 - 两行显示
         const issueItems: IssuePickItem[] = issues.map(issue => {
-            // label: 显示原始议题标题
-            const maxTitleLength = 80;
+            const typeInfo = detectIssueType(issue.title);
+            
+            // 第一行：原始议题标题
+            const maxTitleLength = 100;
             const displayTitle = issue.title.length > maxTitleLength 
                 ? issue.title.substring(0, maxTitleLength) + '...' 
                 : issue.title;
             
-            // description: 只显示议题编号
-            const issueNumber = `#${issue.number}`;
-            
+            // 第二行（detail）：议题编号
+            const issueDetail = `#${issue.number}`;
+
             return {
-                label: `$(issue-opened) ${displayTitle}`,
-                description: issueNumber,
-                // 移除 detail 属性，避免显示为两行
+                label: displayTitle,
+                detail: issueDetail,  // 使用 detail 实现两行显示
                 action: 'select',
                 issue: issue
             };
@@ -1061,17 +1062,17 @@ async function determineCommitTitle(currentMessage: string, selectedIssues: Issu
 async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: string, cancelled: boolean, isBreaking: boolean }> {
     // 预定义提交类型
     const commitTypes = [
-        { label: 'feat', description: '新功能' },
-        { label: 'fix', description: '修复bug' },
-        { label: 'docs', description: '文档更新' },
-        { label: 'style', description: '代码格式（不影响功能）' },
-        { label: 'refactor', description: '重构（既不是新功能也不是修复bug）' },
-        { label: 'test', description: '添加或修改测试' },
-        { label: 'chore', description: '构建过程或辅助工具的变动' },
-        { label: 'perf', description: '性能优化' },
-        { label: 'ci', description: '持续集成相关' },
-        { label: 'build', description: '构建相关' },
-        { label: 'revert', description: '回滚提交' }
+        { label: 'feat', detail: '添加新的功能特性' },
+        { label: 'fix', detail: '修复代码中的错误' },
+        { label: 'docs', detail: '仅文档相关的更改' },
+        { label: 'style', detail: '不影响代码含义的更改（空格、格式化、缺少分号等）' },
+        { label: 'refactor', detail: '既不修复bug也不添加功能的代码更改' },
+        { label: 'test', detail: '添加缺失的测试或更正现有测试' },
+        { label: 'chore', detail: '对构建过程或辅助工具和库的更改' },
+        { label: 'perf', detail: '提高性能的代码更改' },
+        { label: 'ci', detail: 'CI配置文件和脚本的更改' },
+        { label: 'build', detail: '影响构建系统或外部依赖的更改' },
+        { label: 'revert', detail: '恢复之前的提交' }
     ];
 
     // 创建可切换状态的选择项
@@ -1091,12 +1092,14 @@ async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: str
             },
             ...commitTypes.map(item => ({
                 label: item.label,
-                description: item.description
+                detail: item.detail,
+                __type: item.label // 保存实际的类型值
             }))
         ];
 
         const selectedType = await vscode.window.showQuickPick(optionsWithToggle, {
-            placeHolder: `选择提交类型${isBreaking ? ' (当前为 Breaking Change)' : ''}`
+            placeHolder: `选择提交类型${isBreaking ? ' (当前为 Breaking Change)' : ''}`,
+            matchOnDetail: true
         });
 
         if (!selectedType) {
@@ -1114,8 +1117,8 @@ async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: str
             continue; // 重新显示菜单
         }
 
-        // 正常的提交类型选择 - 使用 label 而不是 detail
-        const commitType = selectedType.label;
+        // 正常的提交类型选择 - 使用保存的类型值
+        const commitType = (selectedType as any).__type;
         logToOutput('用户选择的提交类型', { 
             type: commitType, 
             isBreaking: isBreaking 
