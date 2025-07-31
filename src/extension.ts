@@ -1042,42 +1042,38 @@ async function determineCommitTitle(currentMessage: string, selectedIssues: Issu
 async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: string, cancelled: boolean, isBreaking: boolean }> {
     // 预定义提交类型
     const commitTypes = [
-        { label: '$(empty) feat', description: '新功能', type: 'feat' },
-        { label: '$(empty) fix', description: '修复bug', type: 'fix' },
-        { label: '$(empty) docs', description: '文档更新', type: 'docs' },
-        { label: '$(empty) style', description: '代码格式（不影响功能）', type: 'style' },
-        { label: '$(empty) refactor', description: '重构（既不是新功能也不是修复bug）', type: 'refactor' },
-        { label: '$(empty) test', description: '添加或修改测试', type: 'test' },
-        { label: '$(empty) chore', description: '构建过程或辅助工具的变动', type: 'chore' },
-        { label: '$(empty) perf', description: '性能优化', type: 'perf' },
-        { label: '$(empty) ci', description: '持续集成相关', type: 'ci' },
-        { label: '$(empty) build', description: '构建相关', type: 'build' },
-        { label: '$(empty) revert', description: '回滚提交', type: 'revert' }
+        { label: 'feat - 新功能', type: 'feat' },
+        { label: 'fix - 修复bug', type: 'fix' },
+        { label: 'docs - 文档更新', type: 'docs' },
+        { label: 'style - 代码格式（不影响功能）', type: 'style' },
+        { label: 'refactor - 重构（既不是新功能也不是修复bug）', type: 'refactor' },
+        { label: 'test - 添加或修改测试', type: 'test' },
+        { label: 'chore - 构建过程或辅助工具的变动', type: 'chore' },
+        { label: 'perf - 性能优化', type: 'perf' },
+        { label: 'ci - 持续集成相关', type: 'ci' },
+        { label: 'build - 构建相关', type: 'build' },
+        { label: 'revert - 回滚提交', type: 'revert' }
     ];
 
     // 创建可切换状态的选择项
     let isBreaking = false;
     
     while (true) {
-        // 动态更新每个选项的复选框状态 - 单行显示
-        const dynamicCommitTypes = commitTypes.map(type => ({
-            label: `${type.type} ${type.description}`,
-            type: type.type
-        }));
-
         // 添加 Breaking Change 切换选项 - 双行显示
         const optionsWithToggle: vscode.QuickPickItem[] = [
             {
                 label: `${isBreaking ? '$(check)' : '$(empty)'} Breaking Change`,
-                description: '点击设置为Breaking Change类型(破坏性变更)',
-                detail: '__toggle__'
-            },
+                description: '',
+                detail: '点击设置为Breaking Change类型(破坏性变更)',
+                __toggle: true // 用作内部标识
+            } as any,
             { 
                 label: '', 
                 kind: vscode.QuickPickItemKind.Separator 
             },
-            ...dynamicCommitTypes.map(item => ({
-                ...item,
+            ...commitTypes.map(item => ({
+                label: item.label,
+                description: '',
                 detail: item.type
             }))
         ];
@@ -1096,7 +1092,7 @@ async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: str
             continue; // 忽略分割线，重新显示菜单
         }
 
-        if (selectedType.detail === '__toggle__') {
+        if ((selectedType as any).__toggle) {
             isBreaking = !isBreaking;
             continue; // 重新显示菜单
         }
