@@ -315,7 +315,7 @@ jobs:
           ```
           
           ### 完整更新日志
-          查看 [CHANGELOG.md](https://github.com/Nowaterisenough/commit-helper/blob/main/CHANGELOG.md)
+          查看 [CHANGELOG.md](https://github.com/Nowaterisenough/CommitHelper/blob/main/CHANGELOG.md)
         draft: false
         prerelease: false
     
