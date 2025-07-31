@@ -2,7 +2,7 @@
   "name": "commit-helper",
   "displayName": "Commit Helper",
   "description": "帮助格式化Git提交消息为约定式提交格式，支持GitHub/GitLab/Gitee议题关联",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "icon": "icon.png",
   "publisher": "NoWaterisEnough",
   "license": "MIT",
