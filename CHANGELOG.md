@@ -1,6 +1,13 @@
-# Change Log
+## [1.0.4] - 2025-07-31
 
-## [1.0.0]
+### 新功能
+- feat: 更新VS Code扩展支持的命令和版本要求
+- feat: Update package configuration and add caching mechanism
+- feat: 更新VS Code扩展版本至1.0.2，并修正发布命令
+
+### 修复
+- fix: 更新上传VSIX步骤中的actions/upload-artifact版本至v4
+
 
 - 初始版本发布
 - 支持约定式提交格式化
