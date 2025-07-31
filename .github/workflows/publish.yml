@@ -129,39 +129,52 @@ jobs:
         CHORES=$(echo "$COMMITS" | grep -E "^- chore(\([^)]*\))?:" || true)
         OTHERS=$(echo "$COMMITS" | grep -vE "^- (feat|fix|docs|style|refactor|perf|test|chore)(\([^)]*\))?:" || true)
         
+        # 去除类型前缀的函数
+        remove_prefix() {
+          echo "$1" | sed -E 's/^- (feat|fix|docs|style|refactor|perf|test|chore)(\([^)]*\))?: ?/- /'
+        }
+        
         # 生成更新日志内容
         CHANGELOG=""
         
         if [ -n "$FEATURES" ]; then
-          CHANGELOG="${CHANGELOG}### 新功能\n$FEATURES\n\n"
+          CLEAN_FEATURES=$(remove_prefix "$FEATURES")
+          CHANGELOG="${CHANGELOG}### 新功能\n$CLEAN_FEATURES\n\n"
         fi
         
         if [ -n "$FIXES" ]; then
-          CHANGELOG="${CHANGELOG}### 修复\n$FIXES\n\n"
+          CLEAN_FIXES=$(remove_prefix "$FIXES")
+          CHANGELOG="${CHANGELOG}### 修复\n$CLEAN_FIXES\n\n"
         fi
         
         if [ -n "$PERFS" ]; then
-          CHANGELOG="${CHANGELOG}### 性能优化\n$PERFS\n\n"
+          CLEAN_PERFS=$(remove_prefix "$PERFS")
+          CHANGELOG="${CHANGELOG}### 性能优化\n$CLEAN_PERFS\n\n"
         fi
         
         if [ -n "$REFACTORS" ]; then
-          CHANGELOG="${CHANGELOG}### 重构\n$REFACTORS\n\n"
+          CLEAN_REFACTORS=$(remove_prefix "$REFACTORS")
+          CHANGELOG="${CHANGELOG}### 重构\n$CLEAN_REFACTORS\n\n"
         fi
         
         if [ -n "$DOCS" ]; then
-          CHANGELOG="${CHANGELOG}### 文档\n$DOCS\n\n"
+          CLEAN_DOCS=$(remove_prefix "$DOCS")
+          CHANGELOG="${CHANGELOG}### 文档\n$CLEAN_DOCS\n\n"
         fi
         
         if [ -n "$TESTS" ]; then
-          CHANGELOG="${CHANGELOG}### 测试\n$TESTS\n\n"
+          CLEAN_TESTS=$(remove_prefix "$TESTS")
+          CHANGELOG="${CHANGELOG}### 测试\n$CLEAN_TESTS\n\n"
         fi
         
         if [ -n "$STYLES" ]; then
-          CHANGELOG="${CHANGELOG}### 样式\n$STYLES\n\n"
+          CLEAN_STYLES=$(remove_prefix "$STYLES")
+          CHANGELOG="${CHANGELOG}### 样式\n$CLEAN_STYLES\n\n"
         fi
         
         if [ -n "$CHORES" ]; then
-          CHANGELOG="${CHANGELOG}### 杂项\n$CHORES\n\n"
+          CLEAN_CHORES=$(remove_prefix "$CHORES")
+          CHANGELOG="${CHANGELOG}### 杂项\n$CLEAN_CHORES\n\n"
         fi
         
         if [ -n "$OTHERS" ]; then
@@ -253,10 +266,19 @@ jobs:
         git push origin HEAD:${{ github.ref_name }}
         git push origin "v$NEW_VERSION"
     
-    # 验证下载的VSIX文件
+    # 重新打包扩展（使用新版本号）
+    - name: Repackage extension with new version
+      if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+      run: |
+        echo "使用新版本号重新打包扩展..."
+        npm run package
+        echo "重新打包的文件:"
+        ls -la *.vsix
+    
+    # 验证VSIX文件
     - name: Check package size
       run: |
-        echo "下载的文件:"
+        echo "当前目录中的VSIX文件:"
         ls -la *.vsix
         
         # 设置VSIX文件名环境变量
@@ -273,6 +295,16 @@ jobs:
         echo "文件: $VSIX_FILE"
         echo "大小: $FILE_SIZE ($SIZE_MB MB)"
         
+        # 验证文件名是否包含正确的版本号
+        if [[ "${{ steps.version.outputs.new_version }}" != "" ]]; then
+          EXPECTED_VERSION="${{ steps.version.outputs.new_version }}"
+          if [[ "$VSIX_FILE" == *"$EXPECTED_VERSION"* ]]; then
+            echo "✅ VSIX文件版本号正确: $EXPECTED_VERSION"
+          else
+            echo "⚠️  VSIX文件版本号可能不匹配，预期: $EXPECTED_VERSION，实际文件: $VSIX_FILE"
+          fi
+        fi
+        
         # 如果大于5MB则警告
         if (( $(echo "$SIZE_MB > 5" | bc -l) )); then
           echo "::warning::扩展包大小超过5MB，可能需要进一步优化"
@@ -280,6 +312,10 @@ jobs:
     
     - name: Publish to VS Code Marketplace
       run: |
+        echo "发布到 VS Code Marketplace..."
+        echo "当前 package.json 版本: $(node -p "require('./package.json').version")"
+        echo "当前目录中的 VSIX 文件:"
+        ls -la *.vsix
         npx @vscode/vsce publish -p $VSCE_PAT
       env:
         VSCE_PAT: ${{ secrets.VSCE_PAT }}
