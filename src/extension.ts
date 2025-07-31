@@ -978,12 +978,32 @@ async function handleManualIssueBinding(): Promise<Issue | null> {
 // 辅助函数：确定提交标题
 async function determineCommitTitle(currentMessage: string, selectedIssues: Issue[], hasExistingContent: boolean): Promise<string> {
     if (hasExistingContent) {
-        // 提取现有标题
-        let commitTitle = currentMessage.replace(/^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+?\))?\s*:\s*/, '').trim();
+        // 提取现有标题，移除提交类型前缀
+        let commitTitle = currentMessage.trim();
+        
+        // 移除常见的提交类型前缀
+        const typePatterns = [
+            /^(feat|fix|docs?|style|refactor|test|chore|perf|ci|build|revert|hotfix|security|update|add|remove)(\(.+?\))?!?\s*[:：]\s*/i,
+            /^\[?(feat|fix|docs?|style|refactor|test|chore|perf|ci|build|revert|hotfix|security|update|add|remove)\]?\s*[:：]?\s*/i
+        ];
+        
+        for (const pattern of typePatterns) {
+            const cleaned = commitTitle.replace(pattern, '').trim();
+            if (cleaned && cleaned !== commitTitle) {
+                commitTitle = cleaned;
+                break;
+            }
+        }
+        
+        // 如果清理后为空，使用原消息
         if (!commitTitle) {
             commitTitle = currentMessage.trim();
         }
-        logToOutput('使用现有提交消息内容', { extractedTitle: commitTitle });
+        
+        logToOutput('使用现有提交消息内容', { 
+            original: currentMessage,
+            extractedTitle: commitTitle 
+        });
         return commitTitle;
     } else if (selectedIssues.length > 0) {
         // 使用议题标题
@@ -1011,62 +1031,104 @@ async function determineCommitTitle(currentMessage: string, selectedIssues: Issu
 async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: string, cancelled: boolean, isBreaking: boolean }> {
     // 预定义提交类型
     const commitTypes = [
-        { label: '$(check) feat', description: '新功能 (Breaking Change)', type: 'feat', isBreaking: true },
-        { label: '$(empty) feat', description: '新功能', type: 'feat', isBreaking: false },
-        { label: '$(check) fix', description: '修复bug (Breaking Change)', type: 'fix', isBreaking: true },
-        { label: '$(empty) fix', description: '修复bug', type: 'fix', isBreaking: false },
-        { label: '$(check) docs', description: '文档更新 (Breaking Change)', type: 'docs', isBreaking: true },
-        { label: '$(empty) docs', description: '文档更新', type: 'docs', isBreaking: false },
-        { label: '$(check) style', description: '代码格式（不影响功能） (Breaking Change)', type: 'style', isBreaking: true },
-        { label: '$(empty) style', description: '代码格式（不影响功能）', type: 'style', isBreaking: false },
-        { label: '$(check) refactor', description: '重构（既不是新功能也不是修复bug） (Breaking Change)', type: 'refactor', isBreaking: true },
-        { label: '$(empty) refactor', description: '重构（既不是新功能也不是修复bug）', type: 'refactor', isBreaking: false },
-        { label: '$(check) test', description: '添加或修改测试 (Breaking Change)', type: 'test', isBreaking: true },
-        { label: '$(empty) test', description: '添加或修改测试', type: 'test', isBreaking: false },
-        { label: '$(check) chore', description: '构建过程或辅助工具的变动 (Breaking Change)', type: 'chore', isBreaking: true },
-        { label: '$(empty) chore', description: '构建过程或辅助工具的变动', type: 'chore', isBreaking: false },
-        { label: '$(check) perf', description: '性能优化 (Breaking Change)', type: 'perf', isBreaking: true },
-        { label: '$(empty) perf', description: '性能优化', type: 'perf', isBreaking: false },
-        { label: '$(check) ci', description: '持续集成相关 (Breaking Change)', type: 'ci', isBreaking: true },
-        { label: '$(empty) ci', description: '持续集成相关', type: 'ci', isBreaking: false },
-        { label: '$(check) build', description: '构建相关 (Breaking Change)', type: 'build', isBreaking: true },
-        { label: '$(empty) build', description: '构建相关', type: 'build', isBreaking: false },
-        { label: '$(check) revert', description: '回滚提交 (Breaking Change)', type: 'revert', isBreaking: true },
-        { label: '$(empty) revert', description: '回滚提交', type: 'revert', isBreaking: false }
+        { label: '$(empty) feat', description: '新功能', type: 'feat' },
+        { label: '$(empty) fix', description: '修复bug', type: 'fix' },
+        { label: '$(empty) docs', description: '文档更新', type: 'docs' },
+        { label: '$(empty) style', description: '代码格式（不影响功能）', type: 'style' },
+        { label: '$(empty) refactor', description: '重构（既不是新功能也不是修复bug）', type: 'refactor' },
+        { label: '$(empty) test', description: '添加或修改测试', type: 'test' },
+        { label: '$(empty) chore', description: '构建过程或辅助工具的变动', type: 'chore' },
+        { label: '$(empty) perf', description: '性能优化', type: 'perf' },
+        { label: '$(empty) ci', description: '持续集成相关', type: 'ci' },
+        { label: '$(empty) build', description: '构建相关', type: 'build' },
+        { label: '$(empty) revert', description: '回滚提交', type: 'revert' }
     ];
 
-    const selectedType = await vscode.window.showQuickPick(commitTypes, {
-        placeHolder: '选择提交类型（勾选表示 Breaking Change）'
-    });
+    // 创建可切换状态的选择项
+    let isBreaking = false;
+    
+    while (true) {
+        // 动态更新每个选项的复选框状态
+        const dynamicCommitTypes = commitTypes.map(type => ({
+            ...type,
+            label: `${isBreaking ? '$(check)' : '$(empty)'} ${type.type}`,
+            description: `${type.description}${isBreaking ? ' (Breaking Change)' : ''}`
+        }));
 
-    if (!selectedType) {
-        logToOutput('用户未选择提交类型');
-        return { commitType: '', scope: '', cancelled: true, isBreaking: false };
+        // 添加 Breaking Change 切换选项
+        const optionsWithToggle = [
+            {
+                label: `${isBreaking ? '$(check)' : '$(empty)'} Breaking Change`,
+                description: `点击${isBreaking ? '取消勾选' : '勾选'} Breaking Change 选项`,
+                type: '__toggle__'
+            },
+            { label: '$(dash) 分割线', description: '', type: '__separator__' },
+            ...dynamicCommitTypes
+        ];
+
+        const selectedType = await vscode.window.showQuickPick(optionsWithToggle, {
+            placeHolder: `选择提交类型${isBreaking ? ' (当前为 Breaking Change)' : ''}`
+        });
+
+        if (!selectedType) {
+            logToOutput('用户未选择提交类型');
+            return { commitType: '', scope: '', cancelled: true, isBreaking: false };
+        }
+
+        // 处理特殊操作
+        if (selectedType.type === '__toggle__') {
+            isBreaking = !isBreaking;
+            continue; // 重新显示菜单
+        }
+
+        if (selectedType.type === '__separator__') {
+            continue; // 忽略分割线，重新显示菜单
+        }
+
+        // 正常的提交类型选择
+        logToOutput('用户选择的提交类型', { 
+            type: selectedType.type, 
+            isBreaking: isBreaking 
+        });
+
+        // 输入作用域（可选）
+        const scope = await vscode.window.showInputBox({
+            prompt: '输入作用域（可选）',
+            placeHolder: '例如：api, ui, auth'
+        });
+
+        logToOutput('用户输入的作用域', { scope: scope || '无' });
+
+        return { 
+            commitType: selectedType.type, 
+            scope: scope || '', 
+            cancelled: false,
+            isBreaking: isBreaking
+        };
     }
-
-    logToOutput('用户选择的提交类型', { 
-        type: selectedType.type, 
-        isBreaking: selectedType.isBreaking 
-    });
-
-    // 输入作用域（可选）
-    const scope = await vscode.window.showInputBox({
-        prompt: '输入作用域（可选）',
-        placeHolder: '例如：api, ui, auth'
-    });
-
-    logToOutput('用户输入的作用域', { scope: scope || '无' });
-
-    return { 
-        commitType: selectedType.type, 
-        scope: scope || '', 
-        cancelled: false,
-        isBreaking: selectedType.isBreaking
-    };
 }
 
 // 辅助函数：生成提交消息
 function generateCommitMessage(commitType: string, scope: string, commitTitle: string, selectedIssues: Issue[], isBreaking: boolean = false): string {
+    // 清理标题，移除可能存在的提交类型前缀
+    let cleanedTitle = commitTitle;
+    
+    // 移除常见的提交类型前缀，避免重复
+    const typePatterns = [
+        /^(feat|fix|docs?|style|refactor|test|chore|perf|ci|build|revert|hotfix|security|update|add|remove)(\(.+?\))?!?\s*[:：]\s*/i,
+        /^\[?(feat|fix|docs?|style|refactor|test|chore|perf|ci|build|revert|hotfix|security|update|add|remove)\]?\s*[:：]?\s*/i
+    ];
+    
+    for (const pattern of typePatterns) {
+        cleanedTitle = cleanedTitle.replace(pattern, '').trim();
+    }
+    
+    // 如果清理后为空，使用原标题
+    if (!cleanedTitle) {
+        cleanedTitle = commitTitle;
+    }
+
+    // 构建新的提交消息
     let commitMessage = commitType;
     if (scope && scope.trim()) {
         commitMessage += `(${scope.trim()})`;
@@ -1077,7 +1139,7 @@ function generateCommitMessage(commitType: string, scope: string, commitTitle: s
         commitMessage += '!';
     }
     
-    commitMessage += `: ${commitTitle}`;
+    commitMessage += `: ${cleanedTitle}`;
 
     // 如果是 breaking change，添加 BREAKING CHANGE 说明
     if (isBreaking) {
