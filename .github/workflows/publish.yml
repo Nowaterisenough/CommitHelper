@@ -271,6 +271,11 @@ jobs:
       if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
       run: |
         echo "使用新版本号重新打包扩展..."
+        # 删除旧的VSIX文件，避免版本冲突
+        rm -f *.vsix
+        echo "已清理旧的VSIX文件"
+        
+        # 重新打包
         npm run package
         echo "重新打包的文件:"
         ls -la *.vsix
@@ -280,6 +285,18 @@ jobs:
       run: |
         echo "当前目录中的VSIX文件:"
         ls -la *.vsix
+        
+        # 检查VSIX文件数量
+        VSIX_COUNT=$(ls *.vsix 2>/dev/null | wc -l)
+        echo "找到 $VSIX_COUNT 个VSIX文件"
+        
+        if [ "$VSIX_COUNT" -gt 1 ]; then
+          echo "⚠️  警告：发现多个VSIX文件，这可能导致发布问题"
+          ls -la *.vsix
+        elif [ "$VSIX_COUNT" -eq 0 ]; then
+          echo "❌ 错误：未找到VSIX文件"
+          exit 1
+        fi
         
         # 设置VSIX文件名环境变量
         VSIX_FILE=$(ls *.vsix | head -n 1)
