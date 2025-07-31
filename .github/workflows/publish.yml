@@ -285,17 +285,16 @@ jobs:
       env:
         VSCE_PAT: ${{ secrets.VSCE_PAT }}
     
-    # 创建GitHub Release - 修改条件
+    # 创建GitHub Release - 使用新的softprops/action-gh-release
     - name: Create Release
       # 当自动创建了新版本时，或者由tag触发时
       if: steps.version.outputs.new_version || startsWith(github.ref, 'refs/tags/v')
-      id: create_release
-      uses: actions/create-release@v1
+      uses: softprops/action-gh-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: v${{ steps.version.outputs.new_version || github.ref_name }}
-        release_name: Release v${{ steps.version.outputs.new_version || github.ref_name }}
+        name: Release v${{ steps.version.outputs.new_version || github.ref_name }}
         body: |
           ## Commit Helper v${{ steps.version.outputs.new_version || github.ref_name }}
           
@@ -316,18 +315,7 @@ jobs:
           
           ### 完整更新日志
           查看 [CHANGELOG.md](https://github.com/Nowaterisenough/CommitHelper/blob/main/CHANGELOG.md)
+        files: |
+          commit-helper-v${{ steps.version.outputs.new_version || github.ref_name }}.vsix
         draft: false
         prerelease: false
-    
-    # 上传VSIX到Release
-    - name: Upload Release Asset
-      # 当成功创建release时
-      if: steps.create_release.outputs.upload_url
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./${{ env.vsix_file }}
-        asset_name: commit-helper-v${{ steps.version.outputs.new_version || github.ref_name }}.vsix
-        asset_content_type: application/vsix
