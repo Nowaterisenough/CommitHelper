@@ -23,13 +23,18 @@
     "issues"
   ],
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.75.0"
   },
   "categories": [
     "Other"
   ],
   "activationEvents": [
-    "onCommand:CommitHelper.formatMessage"
+    "onCommand:CommitHelper.formatMessage",
+    "onCommand:CommitHelper.testConfig",
+    "onCommand:CommitHelper.debugConfig",
+    "onCommand:CommitHelper.debugRepo",
+    "onCommand:CommitHelper.clearCache",
+    "onCommand:CommitHelper.toggleDebug"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -39,6 +44,31 @@
         "title": "格式化提交消息",
         "category": "Commit Helper",
         "icon": "$(tag)"
+      },
+      {
+        "command": "CommitHelper.testConfig",
+        "title": "测试配置",
+        "category": "Commit Helper"
+      },
+      {
+        "command": "CommitHelper.debugConfig",
+        "title": "调试配置",
+        "category": "Commit Helper"
+      },
+      {
+        "command": "CommitHelper.debugRepo",
+        "title": "调试仓库信息",
+        "category": "Commit Helper"
+      },
+      {
+        "command": "CommitHelper.clearCache",
+        "title": "清除缓存",
+        "category": "Commit Helper"
+      },
+      {
+        "command": "CommitHelper.toggleDebug",
+        "title": "切换调试模式",
+        "category": "Commit Helper"
       }
     ],
     "menus": {
@@ -52,6 +82,26 @@
       "commandPalette": [
         {
           "command": "CommitHelper.formatMessage",
+          "when": "scmProvider == git"
+        },
+        {
+          "command": "CommitHelper.testConfig",
+          "when": "scmProvider == git"
+        },
+        {
+          "command": "CommitHelper.debugConfig",
+          "when": "scmProvider == git"
+        },
+        {
+          "command": "CommitHelper.debugRepo",
+          "when": "scmProvider == git"
+        },
+        {
+          "command": "CommitHelper.clearCache",
+          "when": "scmProvider == git"
+        },
+        {
+          "command": "CommitHelper.toggleDebug",
           "when": "scmProvider == git"
         }
       ]
@@ -94,13 +144,16 @@
     "compile": "npm run check-types && node esbuild.js",
     "check-types": "tsc --noEmit",
     "watch": "npm run check-types && node esbuild.js --watch",
-    "package": "npm run check-types && node esbuild.js --production",
-    "vscode:prepublish": "npm run package"
+    "build": "npm run check-types && node esbuild.js --production",
+    "vscode:prepublish": "npm run build",
+    "package": "vsce package",
+    "test": "echo \"No tests specified\""
   },
   "devDependencies": {
     "@types/node": "20.x",
-    "@types/vscode": "^1.75.0",
-    "typescript": "^5.0.0",
-    "esbuild": "^0.19.0"
+    "@types/vscode": "1.75.0",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.19.0",
+    "typescript": "^5.0.0"
   }
 }
