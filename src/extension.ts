@@ -727,14 +727,14 @@ async function formatCommitMessage(): Promise<void> {
         }
 
         // 获取提交类型和作用域
-        const { commitType, scope, cancelled } = await getCommitTypeAndScope();
+        const { commitType, scope, cancelled, isBreaking } = await getCommitTypeAndScope();
         
         if (cancelled) {
             return;
         }
 
         // 生成最终提交消息
-        const finalMessage = generateCommitMessage(commitType, scope, commitTitle, selectedIssues);
+        const finalMessage = generateCommitMessage(commitType, scope, commitTitle, selectedIssues, isBreaking);
 
         // 更新Git输入框
         repository.inputBox.value = finalMessage;
@@ -1008,32 +1008,46 @@ async function determineCommitTitle(currentMessage: string, selectedIssues: Issu
 }
 
 // 辅助函数：获取提交类型和作用域
-async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: string, cancelled: boolean }> {
+async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: string, cancelled: boolean, isBreaking: boolean }> {
     // 预定义提交类型
     const commitTypes = [
-        { label: 'feat', description: '新功能' },
-        { label: 'fix', description: '修复bug' },
-        { label: 'docs', description: '文档更新' },
-        { label: 'style', description: '代码格式（不影响功能）' },
-        { label: 'refactor', description: '重构（既不是新功能也不是修复bug）' },
-        { label: 'test', description: '添加或修改测试' },
-        { label: 'chore', description: '构建过程或辅助工具的变动' },
-        { label: 'perf', description: '性能优化' },
-        { label: 'ci', description: '持续集成相关' },
-        { label: 'build', description: '构建相关' },
-        { label: 'revert', description: '回滚提交' }
+        { label: '$(check) feat', description: '新功能 (Breaking Change)', type: 'feat', isBreaking: true },
+        { label: '$(empty) feat', description: '新功能', type: 'feat', isBreaking: false },
+        { label: '$(check) fix', description: '修复bug (Breaking Change)', type: 'fix', isBreaking: true },
+        { label: '$(empty) fix', description: '修复bug', type: 'fix', isBreaking: false },
+        { label: '$(check) docs', description: '文档更新 (Breaking Change)', type: 'docs', isBreaking: true },
+        { label: '$(empty) docs', description: '文档更新', type: 'docs', isBreaking: false },
+        { label: '$(check) style', description: '代码格式（不影响功能） (Breaking Change)', type: 'style', isBreaking: true },
+        { label: '$(empty) style', description: '代码格式（不影响功能）', type: 'style', isBreaking: false },
+        { label: '$(check) refactor', description: '重构（既不是新功能也不是修复bug） (Breaking Change)', type: 'refactor', isBreaking: true },
+        { label: '$(empty) refactor', description: '重构（既不是新功能也不是修复bug）', type: 'refactor', isBreaking: false },
+        { label: '$(check) test', description: '添加或修改测试 (Breaking Change)', type: 'test', isBreaking: true },
+        { label: '$(empty) test', description: '添加或修改测试', type: 'test', isBreaking: false },
+        { label: '$(check) chore', description: '构建过程或辅助工具的变动 (Breaking Change)', type: 'chore', isBreaking: true },
+        { label: '$(empty) chore', description: '构建过程或辅助工具的变动', type: 'chore', isBreaking: false },
+        { label: '$(check) perf', description: '性能优化 (Breaking Change)', type: 'perf', isBreaking: true },
+        { label: '$(empty) perf', description: '性能优化', type: 'perf', isBreaking: false },
+        { label: '$(check) ci', description: '持续集成相关 (Breaking Change)', type: 'ci', isBreaking: true },
+        { label: '$(empty) ci', description: '持续集成相关', type: 'ci', isBreaking: false },
+        { label: '$(check) build', description: '构建相关 (Breaking Change)', type: 'build', isBreaking: true },
+        { label: '$(empty) build', description: '构建相关', type: 'build', isBreaking: false },
+        { label: '$(check) revert', description: '回滚提交 (Breaking Change)', type: 'revert', isBreaking: true },
+        { label: '$(empty) revert', description: '回滚提交', type: 'revert', isBreaking: false }
     ];
 
     const selectedType = await vscode.window.showQuickPick(commitTypes, {
-        placeHolder: '选择提交类型'
+        placeHolder: '选择提交类型（勾选表示 Breaking Change）'
     });
 
     if (!selectedType) {
         logToOutput('用户未选择提交类型');
-        return { commitType: '', scope: '', cancelled: true };
+        return { commitType: '', scope: '', cancelled: true, isBreaking: false };
     }
 
-    logToOutput('用户选择的提交类型', { type: selectedType.label });
+    logToOutput('用户选择的提交类型', { 
+        type: selectedType.type, 
+        isBreaking: selectedType.isBreaking 
+    });
 
     // 输入作用域（可选）
     const scope = await vscode.window.showInputBox({
@@ -1043,20 +1057,40 @@ async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: str
 
     logToOutput('用户输入的作用域', { scope: scope || '无' });
 
-    return { commitType: selectedType.label, scope: scope || '', cancelled: false };
+    return { 
+        commitType: selectedType.type, 
+        scope: scope || '', 
+        cancelled: false,
+        isBreaking: selectedType.isBreaking
+    };
 }
 
 // 辅助函数：生成提交消息
-function generateCommitMessage(commitType: string, scope: string, commitTitle: string, selectedIssues: Issue[]): string {
+function generateCommitMessage(commitType: string, scope: string, commitTitle: string, selectedIssues: Issue[], isBreaking: boolean = false): string {
     let commitMessage = commitType;
     if (scope && scope.trim()) {
         commitMessage += `(${scope.trim()})`;
     }
+    
+    // 如果是 breaking change，添加感叹号
+    if (isBreaking) {
+        commitMessage += '!';
+    }
+    
     commitMessage += `: ${commitTitle}`;
+
+    // 如果是 breaking change，添加 BREAKING CHANGE 说明
+    if (isBreaking) {
+        commitMessage += '\n\nBREAKING CHANGE: 这是一个破坏性变更，可能影响现有功能的使用方式';
+    }
 
     // 添加议题引用（如果选择了议题）
     if (selectedIssues.length > 0) {
-        commitMessage += `\n\nCloses #${selectedIssues[0].number}`;
+        if (isBreaking) {
+            commitMessage += `\n\nCloses #${selectedIssues[0].number}`;
+        } else {
+            commitMessage += `\n\nCloses #${selectedIssues[0].number}`;
+        }
     }
 
     return commitMessage;
