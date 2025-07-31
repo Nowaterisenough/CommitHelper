@@ -759,11 +759,8 @@ async function formatCommitMessage(): Promise<void> {
 }
 
 // 定义选择项类型
-interface IssuePickItem {
-    label: string;
-    description: string;
-    detail?: string;
-    action: 'refresh' | 'manual' | 'none' | 'info' | 'select';
+interface IssuePickItem extends vscode.QuickPickItem {
+    action: 'refresh' | 'manual' | 'none' | 'info' | 'select' | 'separator';
     issue: Issue | null;
 }
 
@@ -784,6 +781,11 @@ async function handleIssueSelection(allIssues: Issue[], hasExistingContent: bool
 
         if (selectedItem === undefined) {
             return { selectedIssue: null, userCancelled: true };
+        }
+
+        // 忽略分隔线
+        if (selectedItem.action === 'separator' || selectedItem.kind === vscode.QuickPickItemKind.Separator) {
+            continue;
         }
 
         // 处理特殊操作
@@ -862,6 +864,15 @@ function createIssuePickItems(issues: Issue[]): IssuePickItem[] {
             issue: null
         });
     } else {
+        // 添加分隔线
+        pickItems.push({
+            label: '',
+            description: '',
+            action: 'separator',
+            issue: null,
+            kind: vscode.QuickPickItemKind.Separator
+        } as any);
+
         // 添加议题列表 - 双行显示优化
         const issueItems: IssuePickItem[] = issues.map(issue => {
             const cleanedTitle = cleanIssueTitle(issue.title);
@@ -1050,20 +1061,26 @@ async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: str
     while (true) {
         // 动态更新每个选项的复选框状态
         const dynamicCommitTypes = commitTypes.map(type => ({
-            ...type,
             label: `${isBreaking ? '$(check)' : '$(empty)'} ${type.type}`,
-            description: `${type.description}${isBreaking ? ' (Breaking Change)' : ''}`
+            description: `${type.description}${isBreaking ? ' (Breaking Change)' : ''}`,
+            type: type.type
         }));
 
         // 添加 Breaking Change 切换选项
-        const optionsWithToggle = [
+        const optionsWithToggle: vscode.QuickPickItem[] = [
             {
                 label: `${isBreaking ? '$(check)' : '$(empty)'} Breaking Change`,
                 description: `点击${isBreaking ? '取消勾选' : '勾选'} Breaking Change 选项`,
-                type: '__toggle__'
+                detail: '__toggle__'
             },
-            { label: '$(dash) 分割线', description: '', type: '__separator__' },
-            ...dynamicCommitTypes
+            { 
+                label: '', 
+                kind: vscode.QuickPickItemKind.Separator 
+            },
+            ...dynamicCommitTypes.map(item => ({
+                ...item,
+                detail: item.type
+            }))
         ];
 
         const selectedType = await vscode.window.showQuickPick(optionsWithToggle, {
@@ -1076,18 +1093,19 @@ async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: str
         }
 
         // 处理特殊操作
-        if (selectedType.type === '__toggle__') {
+        if (selectedType.kind === vscode.QuickPickItemKind.Separator) {
+            continue; // 忽略分割线，重新显示菜单
+        }
+
+        if (selectedType.detail === '__toggle__') {
             isBreaking = !isBreaking;
             continue; // 重新显示菜单
         }
 
-        if (selectedType.type === '__separator__') {
-            continue; // 忽略分割线，重新显示菜单
-        }
-
         // 正常的提交类型选择
+        const commitType = selectedType.detail || '';
         logToOutput('用户选择的提交类型', { 
-            type: selectedType.type, 
+            type: commitType, 
             isBreaking: isBreaking 
         });
 
@@ -1100,7 +1118,7 @@ async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: str
         logToOutput('用户输入的作用域', { scope: scope || '无' });
 
         return { 
-            commitType: selectedType.type, 
+            commitType: commitType, 
             scope: scope || '', 
             cancelled: false,
             isBreaking: isBreaking
@@ -1110,7 +1128,7 @@ async function getCommitTypeAndScope(): Promise<{ commitType: string, scope: str
 
 // 辅助函数：生成提交消息
 function generateCommitMessage(commitType: string, scope: string, commitTitle: string, selectedIssues: Issue[], isBreaking: boolean = false): string {
-    // 清理标题，移除可能存在的提交类型前缀
+    // 清理标题，移除可能存在的提交类型前缀和重复内容
     let cleanedTitle = commitTitle;
     
     // 移除常见的提交类型前缀，避免重复
@@ -1123,9 +1141,18 @@ function generateCommitMessage(commitType: string, scope: string, commitTitle: s
         cleanedTitle = cleanedTitle.replace(pattern, '').trim();
     }
     
-    // 如果清理后为空，使用原标题
+    // 移除已存在的 BREAKING CHANGE 内容，避免重复
+    cleanedTitle = cleanedTitle.replace(/\n\nBREAKING CHANGE:.*$/s, '').trim();
+    
+    // 移除已存在的 Closes 内容，避免重复
+    cleanedTitle = cleanedTitle.replace(/\n\nCloses #\d+$/gm, '').trim();
+    
+    // 如果清理后为空，使用原标题但仍需清理重复内容
     if (!cleanedTitle) {
-        cleanedTitle = commitTitle;
+        cleanedTitle = commitTitle
+            .replace(/\n\nBREAKING CHANGE:.*$/s, '')
+            .replace(/\n\nCloses #\d+$/gm, '')
+            .trim();
     }
 
     // 构建新的提交消息
@@ -1148,11 +1175,7 @@ function generateCommitMessage(commitType: string, scope: string, commitTitle: s
 
     // 添加议题引用（如果选择了议题）
     if (selectedIssues.length > 0) {
-        if (isBreaking) {
-            commitMessage += `\n\nCloses #${selectedIssues[0].number}`;
-        } else {
-            commitMessage += `\n\nCloses #${selectedIssues[0].number}`;
-        }
+        commitMessage += `\n\nCloses #${selectedIssues[0].number}`;
     }
 
     return commitMessage;
