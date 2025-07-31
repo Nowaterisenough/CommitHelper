@@ -478,52 +478,39 @@ const TITLE_CLEAN_PATTERNS = [
     /^\s+|\s+$/g // trim 操作
 ];
 
-// 议题类型识别规则
-const ISSUE_TYPE_PATTERNS = [
-    { pattern: /^(\[?(?:feat|feature|新功能|功能)\]?[:：\s-]|feat\s*[:：]|feature\s*[:：])/i, type: 'feat', icon: '[FEAT]', label: '新功能' },
-    { pattern: /^(\[?(?:fix|bug|修复|修改|bugfix)\]?[:：\s-]|fix\s*[:：]|bug\s*[:：])/i, type: 'fix', icon: '[FIX]', label: 'Bug修复' },
-    { pattern: /^(\[?(?:docs?|文档|说明)\]?[:：\s-]|docs?\s*[:：])/i, type: 'docs', icon: '[DOCS]', label: '文档' },
-    { pattern: /^(\[?(?:style|样式|格式)\]?[:：\s-]|style\s*[:：])/i, type: 'style', icon: '[STYLE]', label: '样式' },
-    { pattern: /^(\[?(?:refactor|重构)\]?[:：\s-]|refactor\s*[:：])/i, type: 'refactor', icon: '[REFACTOR]', label: '重构' },
-    { pattern: /^(\[?(?:test|测试)\]?[:：\s-]|test\s*[:：])/i, type: 'test', icon: '[TEST]', label: '测试' },
-    { pattern: /^(\[?(?:chore|杂项|维护|配置)\]?[:：\s-]|chore\s*[:：])/i, type: 'chore', icon: '[CHORE]', label: '维护' },
-    { pattern: /^(\[?(?:perf|性能|优化)\]?[:：\s-]|perf\s*[:：])/i, type: 'perf', icon: '[PERF]', label: '性能优化' },
-    { pattern: /^(\[?(?:ci|持续集成|集成)\]?[:：\s-]|ci\s*[:：])/i, type: 'ci', icon: '[CI]', label: 'CI/CD' },
-    { pattern: /^(\[?(?:build|构建|编译)\]?[:：\s-]|build\s*[:：])/i, type: 'build', icon: '[BUILD]', label: '构建' },
-    { pattern: /^(\[?(?:revert|回滚|撤销)\]?[:：\s-]|revert\s*[:：])/i, type: 'revert', icon: '[REVERT]', label: '回滚' },
-    { pattern: /^(\[?(?:hotfix|紧急修复|热修复)\]?[:：\s-]|hotfix\s*[:：])/i, type: 'hotfix', icon: '[HOTFIX]', label: '紧急修复' },
-    { pattern: /^(\[?(?:security|安全)\]?[:：\s-]|security\s*[:：])/i, type: 'security', icon: '[SECURITY]', label: '安全' },
-    { pattern: /^(\[?(?:update|更新|升级)\]?[:：\s-]|update\s*[:：])/i, type: 'update', icon: '[UPDATE]', label: '更新' },
-    { pattern: /^(\[?(?:add|添加|新增)\]?[:：\s-]|add\s*[:：])/i, type: 'add', icon: '[ADD]', label: '新增' },
-    { pattern: /^(\[?(?:remove|删除|移除)\]?[:：\s-]|remove\s*[:：])/i, type: 'remove', icon: '[REMOVE]', label: '删除' }
-];
-
-// 优化的清理议题标题函数
+// 优化的清理议题标题函数 - 增强清理规则
 function cleanIssueTitle(title: string): string {
     if (!title) return title;
     
-    let cleanedTitle = title.replace(TITLE_CLEAN_PATTERNS[0], '').trim();
-    return cleanedTitle || title;
-}
-
-// 识别议题类型
-function detectIssueType(title: string): { type: string; icon: string; label: string } {
-    if (!title) {
-        return { type: 'other', icon: '[OTHER]', label: '其他' };
-    }
-
-    for (const rule of ISSUE_TYPE_PATTERNS) {
-        if (rule.pattern.test(title)) {
-            return {
-                type: rule.type,
-                icon: rule.icon,
-                label: rule.label
-            };
+    // 更全面的清理规则
+    const cleanPatterns = [
+        // 清理各种格式的前缀标签
+        /^(?:\[[^\]]+\]|【[^】]+】|\([^)]+\)|[A-Z]+[-:])\s*-?\s*/,
+        // 清理feat/fix等类型前缀
+        /^(feat|fix|docs?|style|refactor|test|chore|perf|ci|build|revert|hotfix|security|update|add|remove)(\(.+?\))?!?\s*[:：]\s*/i,
+        // 清理带方括号的类型前缀
+        /^\[?(feat|fix|docs?|style|refactor|test|chore|perf|ci|build|revert|hotfix|security|update|add|remove)\]?\s*[:：]?\s*/i,
+        // 清理中文类型前缀
+        /^(新功能|功能|修复|修改|文档|样式|重构|测试|维护|性能|持续集成|构建|回滚|热修复|安全|更新|添加|删除)[:：]\s*/,
+    ];
+    
+    let cleanedTitle = title;
+    
+    // 依次应用清理规则
+    for (const pattern of cleanPatterns) {
+        const cleaned = cleanedTitle.replace(pattern, '').trim();
+        if (cleaned && cleaned !== cleanedTitle) {
+            cleanedTitle = cleaned;
+            break; // 找到匹配的规则后停止
         }
     }
-
-    // 默认类型
-    return { type: 'other', icon: '[OTHER]', label: '其他' };
+    
+    // 如果清理后为空或太短，返回原标题
+    if (!cleanedTitle || cleanedTitle.length < 3) {
+        return title;
+    }
+    
+    return cleanedTitle;
 }
 
 // 优化的API请求构建逻辑 - 支持分页
@@ -873,38 +860,31 @@ function createIssuePickItems(issues: Issue[]): IssuePickItem[] {
             kind: vscode.QuickPickItemKind.Separator
         } as any);
 
-        // 添加议题列表 - 双行显示优化
+        // 添加议题列表 - 保持原始标题
         const issueItems: IssuePickItem[] = issues.map(issue => {
-            const cleanedTitle = cleanIssueTitle(issue.title);
             const typeInfo = detectIssueType(issue.title);
             
-            // 第一行：议题编号 + 类型标识
-            const firstLine = `#${issue.number} ${typeInfo.icon} ${typeInfo.label}`;
-            
-            // 第二行：议题标题（限制长度以保持美观）
+            // label: 显示原始议题标题（用于匹配和后续修正commit前缀类型）
             const maxTitleLength = 80;
-            const displayTitle = cleanedTitle.length > maxTitleLength 
-                ? cleanedTitle.substring(0, maxTitleLength) + '...' 
-                : cleanedTitle;
+            const displayTitle = issue.title.length > maxTitleLength 
+                ? issue.title.substring(0, maxTitleLength) + '...' 
+                : issue.title;
             
-            // 使用换行符创建双行显示
-            const label = `$(issue-opened) ${firstLine}`;
-            const description = displayTitle;
+            // description: 显示议题编号
+            const issueNumber = `#${issue.number} ${typeInfo.icon} ${typeInfo.label}`;
             
-            // 详细信息显示原始标题（如果被清理过）
+            // detail: 如果标题被截断，显示完整标题
             let detail = undefined;
-            if (issue.title !== cleanedTitle) {
-                detail = `原标题: ${issue.title}`;
-            } else if (cleanedTitle.length > maxTitleLength) {
-                detail = `完整标题: ${cleanedTitle}`;
+            if (issue.title.length > maxTitleLength) {
+                detail = `完整标题: ${issue.title}`;
             }
 
             return {
-                label,
-                description,
+                label: `$(issue-opened) ${displayTitle}`,
+                description: issueNumber,
                 detail,
                 action: 'select',
-                issue: { ...issue, title: cleanedTitle }
+                issue: issue // 保持原始的issue对象，不修改title
             };
         });
 
@@ -1017,9 +997,15 @@ async function determineCommitTitle(currentMessage: string, selectedIssues: Issu
         });
         return commitTitle;
     } else if (selectedIssues.length > 0) {
-        // 使用议题标题
-        logToOutput('使用议题标题', { title: selectedIssues[0].title });
-        return selectedIssues[0].title;
+        // 使用议题标题，但需要清理前缀
+        const rawTitle = selectedIssues[0].title;
+        const cleanedTitle = cleanIssueTitle(rawTitle);
+        
+        logToOutput('使用议题标题', { 
+            rawTitle: rawTitle,
+            cleanedTitle: cleanedTitle 
+        });
+        return cleanedTitle;
     } else {
         // 需要用户输入
         const inputTitle = await vscode.window.showInputBox({
