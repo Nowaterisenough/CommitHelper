@@ -14,8 +14,6 @@ esbuild.js
 # 排除大文件和开发相关文件
 icon-1024.png
 *.vsix
-CHANGELOG.md
-README.md
 
 # 开发工具文件
 *.log
@@ -25,3 +23,4 @@ Thumbs.db
 # 临时文件
 *.tmp
 *.temp
+changelog_content.md
