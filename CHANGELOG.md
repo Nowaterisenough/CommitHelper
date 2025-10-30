@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 1.1.4: October 30, 2025
+
+### Bug Fixes
+- 修复 CHANGELOG.md 未打包到 VSIX 的问题
+
 ## Version 1.1.3: October 30, 2025
 
 ### Documentation
