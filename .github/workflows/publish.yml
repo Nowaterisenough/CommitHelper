@@ -134,56 +134,56 @@ jobs:
           echo "$1" | sed -E 's/^- (feat|fix|docs|style|refactor|perf|test|chore)(\([^)]*\))?: ?/- /'
         }
         
-        # 生成更新日志内容
+        # 生成更新日志内容（使用英文分类标题以符合 VSCode 市场规范）
         CHANGELOG=""
-        
+
         if [ -n "$FEATURES" ]; then
           CLEAN_FEATURES=$(remove_prefix "$FEATURES")
-          CHANGELOG="${CHANGELOG}### 新功能\n$CLEAN_FEATURES\n\n"
+          CHANGELOG="${CHANGELOG}### Enhancements\n$CLEAN_FEATURES\n\n"
         fi
-        
+
         if [ -n "$FIXES" ]; then
           CLEAN_FIXES=$(remove_prefix "$FIXES")
-          CHANGELOG="${CHANGELOG}### 修复\n$CLEAN_FIXES\n\n"
+          CHANGELOG="${CHANGELOG}### Bug Fixes\n$CLEAN_FIXES\n\n"
         fi
-        
+
         if [ -n "$PERFS" ]; then
           CLEAN_PERFS=$(remove_prefix "$PERFS")
-          CHANGELOG="${CHANGELOG}### 性能优化\n$CLEAN_PERFS\n\n"
+          CHANGELOG="${CHANGELOG}### Performance\n$CLEAN_PERFS\n\n"
         fi
-        
+
         if [ -n "$REFACTORS" ]; then
           CLEAN_REFACTORS=$(remove_prefix "$REFACTORS")
-          CHANGELOG="${CHANGELOG}### 重构\n$CLEAN_REFACTORS\n\n"
+          CHANGELOG="${CHANGELOG}### Refactoring\n$CLEAN_REFACTORS\n\n"
         fi
-        
+
         if [ -n "$DOCS" ]; then
           CLEAN_DOCS=$(remove_prefix "$DOCS")
-          CHANGELOG="${CHANGELOG}### 文档\n$CLEAN_DOCS\n\n"
+          CHANGELOG="${CHANGELOG}### Documentation\n$CLEAN_DOCS\n\n"
         fi
-        
+
         if [ -n "$TESTS" ]; then
           CLEAN_TESTS=$(remove_prefix "$TESTS")
-          CHANGELOG="${CHANGELOG}### 测试\n$CLEAN_TESTS\n\n"
+          CHANGELOG="${CHANGELOG}### Testing\n$CLEAN_TESTS\n\n"
         fi
-        
+
         if [ -n "$STYLES" ]; then
           CLEAN_STYLES=$(remove_prefix "$STYLES")
-          CHANGELOG="${CHANGELOG}### 样式\n$CLEAN_STYLES\n\n"
+          CHANGELOG="${CHANGELOG}### Style Changes\n$CLEAN_STYLES\n\n"
         fi
-        
+
         if [ -n "$CHORES" ]; then
           CLEAN_CHORES=$(remove_prefix "$CHORES")
-          CHANGELOG="${CHANGELOG}### 杂项\n$CLEAN_CHORES\n\n"
+          CHANGELOG="${CHANGELOG}### Maintenance\n$CLEAN_CHORES\n\n"
         fi
-        
+
         if [ -n "$OTHERS" ]; then
-          CHANGELOG="${CHANGELOG}### 其他更新\n$OTHERS\n\n"
+          CHANGELOG="${CHANGELOG}### Other Changes\n$OTHERS\n\n"
         fi
-        
+
         # 如果没有更新内容，使用默认信息
         if [ -z "$CHANGELOG" ]; then
-          CHANGELOG="### 维护更新\n- 例行维护和依赖更新\n"
+          CHANGELOG="### Maintenance\n- Routine maintenance and dependency updates\n"
         fi
         
         # 保存到文件（为了多行内容）
@@ -211,18 +211,20 @@ jobs:
         echo "new_version=$NEW_VERSION" >> $GITHUB_ENV
         echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
         
-        # 更新CHANGELOG.md文件
-        CHANGELOG_ENTRY="## [${NEW_VERSION}] - $(date +%Y-%m-%d)\n\n$(cat changelog_content.md)"
-        
+        # 更新CHANGELOG.md文件（使用 VSCode 市场格式）
+        # 将日期格式从 YYYY-MM-DD 转换为 "Month Day, Year"
+        FORMATTED_DATE=$(date +"%B %d, %Y")
+        CHANGELOG_ENTRY="## Version ${NEW_VERSION}: ${FORMATTED_DATE}\n\n$(cat changelog_content.md)"
+
         # 检查CHANGELOG.md是否存在
         if [ ! -f CHANGELOG.md ]; then
-          echo -e "# 更新日志\n\n所有版本的更新内容都记录在此文件中。\n" > CHANGELOG.md
+          echo -e "# Changelog\n" > CHANGELOG.md
         fi
-        
+
         # 读取现有的 CHANGELOG 内容
         if [ -f CHANGELOG.md ]; then
-          # 查找第一个版本标题的位置（## [x.x.x]）
-          FIRST_VERSION_LINE=$(grep -n "^## \[" CHANGELOG.md | head -n 1 | cut -d: -f1)
+          # 查找第一个版本标题的位置（兼容新旧格式）
+          FIRST_VERSION_LINE=$(grep -n "^## \(\[.*\]\|Version\)" CHANGELOG.md | head -n 1 | cut -d: -f1)
           
           if [ -n "$FIRST_VERSION_LINE" ]; then
             # 如果找到版本标题，在它之前插入新版本
@@ -249,9 +251,7 @@ jobs:
         else
           # 如果文件不存在，创建新文件
           {
-            echo "# 更新日志"
-            echo ""
-            echo "所有版本的更新内容都记录在此文件中。"
+            echo "# Changelog"
             echo ""
             echo -e "$CHANGELOG_ENTRY"
           } > CHANGELOG.md
