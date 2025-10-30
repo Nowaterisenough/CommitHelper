@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 1.1.3: October 30, 2025
+
+### Documentation
+- 转换 CHANGELOG 格式以符合 VSCode 市场规范
+
 ## Version 1.1.2: October 30, 2025
 
 ### Bug Fixes
