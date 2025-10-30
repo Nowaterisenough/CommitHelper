@@ -106,10 +106,10 @@ jobs:
         
         # 获取自上个版本以来的提交信息
         if [ -n "${{ steps.previoustag.outputs.previous_tag }}" ]; then
-          # 使用 --first-parent 避免包含合并的分支历史
-          RAW_COMMITS=$(git log ${{ steps.previoustag.outputs.previous_tag }}..HEAD --pretty=format:"%s" --first-parent --no-merges)
+          # 移除 --first-parent，使其能够包含分支上的提交（适配 merge --no-ff 工作流）
+          RAW_COMMITS=$(git log ${{ steps.previoustag.outputs.previous_tag }}..HEAD --pretty=format:"%s" --no-merges)
         else
-          RAW_COMMITS=$(git log --pretty=format:"%s" --first-parent --no-merges)
+          RAW_COMMITS=$(git log --pretty=format:"%s" --no-merges)
         fi
         
         # 去重并过滤
