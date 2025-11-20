@@ -35,6 +35,7 @@ export interface CommitOptions {
     title: string;
     issues: Issue[];
     isBreaking: boolean;
+    existingMessage?: string;
 }
 
 export interface HttpRequestOptions {

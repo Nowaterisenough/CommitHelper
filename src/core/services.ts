@@ -185,33 +185,146 @@ export class CommitHelperService {
     }
 
     /**
+     * 解析已有的提交消息，将正文和脚注拆分出来
+     */
+    private parseExistingSections(existingMessage?: string): {
+        body: string[];
+        footers: string[];
+        hasBreakingFooter: boolean;
+        existingIssueNumbers: Set<number>;
+    } {
+        if (!existingMessage || !existingMessage.trim()) {
+            return {
+                body: [],
+                footers: [],
+                hasBreakingFooter: false,
+                existingIssueNumbers: new Set<number>()
+            };
+        }
+
+        const lines = existingMessage.split(/\r?\n/);
+        // 丢弃首行标题，其余部分按正文/脚注拆分
+        lines.shift();
+
+        // 去掉前导空行
+        while (lines.length > 0 && !lines[0].trim()) {
+            lines.shift();
+        }
+
+        const footerPattern = /^(BREAKING\s+CHANGE|BREAKING-CHANGE|Closes|Fixes|Resolves|Refs?|See)\b/i;
+        const body: string[] = [];
+        const footers: string[] = [];
+        let footerStarted = false;
+
+        for (const line of lines) {
+            const trimmedLine = line.trimEnd();
+            const isFooter = footerPattern.test(trimmedLine.trim());
+            if (isFooter) {
+                footerStarted = true;
+            }
+
+            if (footerStarted) {
+                footers.push(trimmedLine);
+            } else {
+                body.push(trimmedLine);
+            }
+        }
+
+        // 去掉正文结尾的空行
+        while (body.length > 0 && !body[body.length - 1].trim()) {
+            body.pop();
+        }
+
+        // 去掉脚注前导空行
+        while (footers.length > 0 && !footers[0].trim()) {
+            footers.shift();
+        }
+
+        const hasBreakingFooter = footers.some(line =>
+            /^(BREAKING\s+CHANGE|BREAKING-CHANGE)/i.test(line.trim())
+        );
+
+        const existingIssueNumbers = new Set<number>();
+        for (const footer of footers) {
+            const match = footer.match(/^(Closes|Fixes|Resolves)\s+#?(\d+)/i);
+            if (match) {
+                const num = parseInt(match[2], 10);
+                if (!isNaN(num)) {
+                    existingIssueNumbers.add(num);
+                }
+            }
+        }
+
+        return { body, footers, hasBreakingFooter, existingIssueNumbers };
+    }
+
+    /**
      * 生成提交消息
      */
     generateCommitMessage(options: CommitOptions): string {
-        let cleanedTitle = removeCommitTypePrefix(options.title);
+        const cleanedTitle = removeCommitTypePrefix(options.title);
+        const existingSections = this.parseExistingSections(options.existingMessage);
+        const shouldMarkBreaking = options.isBreaking || existingSections.hasBreakingFooter;
 
-        // 构建提交消息
-        let commitMessage = options.type;
+        // 构建提交消息头部
+        let commitHeader = options.type;
         if (options.scope && options.scope.trim()) {
-            commitMessage += `(${options.scope.trim()})`;
+            commitHeader += `(${options.scope.trim()})`;
         }
 
-        if (options.isBreaking) {
-            commitMessage += '!';
+        if (shouldMarkBreaking) {
+            commitHeader += '!';
         }
 
-        commitMessage += `: ${cleanedTitle}`;
+        commitHeader += `: ${cleanedTitle}`;
 
-        // 添加 BREAKING CHANGE 说明
-        if (options.isBreaking) {
-            commitMessage += '\n\nBREAKING CHANGE: 这是一个破坏性变更，可能影响现有功能的使用方式';
+        const lines: string[] = [commitHeader];
+
+        // 拼接正文
+        if (existingSections.body.length > 0) {
+            lines.push('');
+            lines.push(...existingSections.body);
         }
 
-        // 添加议题引用
-        if (options.issues.length > 0) {
-            commitMessage += `\n\nCloses #${options.issues[0].number}`;
+        // 处理脚注、去重
+        const footerLines: string[] = [];
+        const footerDedup = new Set<string>();
+        const addFooter = (footer: string) => {
+            const normalized = footer.trim();
+            if (!normalized) {
+                return;
+            }
+            const key = normalized.toLowerCase();
+            if (footerDedup.has(key)) {
+                return;
+            }
+            footerDedup.add(key);
+            footerLines.push(normalized);
+        };
+
+        existingSections.footers.forEach(addFooter);
+
+        // 根据选择标记填充 BREAKING 信息（如果用户选择或原文已有）
+        if (shouldMarkBreaking && !existingSections.hasBreakingFooter) {
+            addFooter('BREAKING CHANGE: 这是一个破坏性变更，可能影响现有功能的使用方式');
         }
 
-        return commitMessage;
+        // 添加议题引用，避免与已有的重复
+        const existingIssues = new Set(existingSections.existingIssueNumbers);
+        options.issues.forEach(issue => {
+            if (!existingIssues.has(issue.number)) {
+                addFooter(`Closes #${issue.number}`);
+                existingIssues.add(issue.number);
+            }
+        });
+
+        if (footerLines.length > 0) {
+            if (lines[lines.length - 1] !== '') {
+                lines.push('');
+            }
+            lines.push(...footerLines);
+        }
+
+        return lines.join('\n');
     }
 }

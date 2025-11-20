@@ -100,7 +100,8 @@ async function formatCommitMessage(): Promise<void> {
             scope: typeAndScope.scope,
             title: commitTitle,
             issues: selectedIssue ? [selectedIssue] : [],
-            isBreaking: typeAndScope.isBreaking
+            isBreaking: typeAndScope.isBreaking,
+            existingMessage: hasExistingContent ? currentMessage : undefined
         });
 
         // 更新Git输入框
