@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 1.1.5: November 20, 2025
+
+### Bug Fixes
+- preserve commit body and footers
+
 ## Version 1.1.4: October 30, 2025
 
 ### Bug Fixes
