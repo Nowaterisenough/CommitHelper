@@ -36,9 +36,11 @@ export class CommitHelperService {
         // 获取访问令牌
         const accessToken = await platform.getAccessToken(repoInfo);
         if (!accessToken) {
-            const errorMsg = `未找到 ${repoInfo.platform} 的访问令牌，请在设置中配置`;
-            this.ctx.logger.error(errorMsg);
-            throw new Error(errorMsg);
+            // 没有 token 时显示警告但不中断流程，返回空列表允许用户继续手动提交
+            const warnMsg = `未找到 ${repoInfo.platform} 的访问令牌，请在设置中配置`;
+            this.ctx.logger.log(warnMsg);
+            vscode.window.showWarningMessage(warnMsg);
+            return [];
         }
 
         // 获取议题
