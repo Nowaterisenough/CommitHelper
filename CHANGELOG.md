@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 1.1.6: January 14, 2026
+
+### Bug Fixes
+- 无 token 时显示警告而非中断流程
+
 ## Version 1.1.5: November 20, 2025
 
 ### Bug Fixes
